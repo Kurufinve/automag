@@ -47,7 +47,8 @@ def encode_to_atoms(encode):
     :param encode: JSON string.
     :return: ase Atoms object.
     """
-    data = json.loads(encode, encoding='utf-8')
+    try: data = json.loads(encode, encoding='utf-8')
+    except TypeError: data = json.loads(encode)
 
     # construct the Atoms object
     atoms = Atoms(
