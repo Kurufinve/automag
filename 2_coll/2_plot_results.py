@@ -34,6 +34,10 @@ def better_sort(state):
 if 'lower_cutoff' not in globals():
     lower_cutoff = 0
 
+# setting default tolerance in determining if magmoms can be considered the same
+if 'tolerance' not in globals():
+    tolerance = 0.08
+
 # create an ase atoms object
 path_to_poscar = '../geometries/' + poscar_file
 atoms = read(path_to_poscar)
@@ -124,7 +128,8 @@ for line, maginfo in zip(lines, maginfos):
                     kept = False
             else:
                 prod = np.multiply(np.sign(w_initial), w_final)
-                if prod.max() - prod.min() > 0.08:
+                # if prod.max() - prod.min() > 0.08:
+                if prod.max() - prod.min() > tolerance:
                     kept = False
 
         if kept and flag:
