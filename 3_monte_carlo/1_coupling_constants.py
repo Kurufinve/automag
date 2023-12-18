@@ -75,7 +75,7 @@ structure.remove_species(non_magnetic_atoms)
 center_indices, point_indices, offset_vectors, distances = structure.get_neighbor_list(cutoff_radius)
 
 # get unique distances
-unique_distances, counts = np.unique(np.around(distances, 2), return_counts=True)
+unique_distances, counts = np.unique(np.around(distances, 3), return_counts=True)
 
 # create fit and control group
 fit_group_size = 1 - control_group_size
