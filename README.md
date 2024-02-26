@@ -7,7 +7,7 @@ magnetically ordered to paramagnetic phase transition.
 Automag is meant to be run on a computing cluster. The first step in the
 installation is to clone the repository
 
-`git clone https://github.com/michelegalasso/automag.git`
+`git clone https://github.com/Kurufinve/automag.git`
 
 I assume that you have Python 3 installed on your system, accessible through
 the `python` command, with the `wheel` and the `venv` packages installed.
