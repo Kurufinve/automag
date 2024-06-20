@@ -20,7 +20,7 @@ from common.utilities import atoms_to_encode, VaspCalculationTask, WriteOutputTa
 
 # substitute with your launchpad file
 # launchpad = LaunchPad.from_file('/home/michele/.fireworks/my_launchpad.yaml')
-launchpad = LaunchPad.from_file('/home/mgalasso/.fireworks/my_launchpad.yaml')
+launchpad = LaunchPad.from_file('/trinity/home/d.poletaev/.fireworks/my_launchpad_remote.yaml')
 
 
 class SubmitFirework(object):
