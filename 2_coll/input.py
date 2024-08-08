@@ -9,6 +9,10 @@ spin_values = {
     'Ni': [2],
 }
 
+# specify the calculator: 'vasp, 'qe', or 'fplo'
+
+calculator = 'vasp'
+
 # define the VASP parameters
 params = {
     'xc': 'PBE',
@@ -31,7 +35,33 @@ params = {
     'ldauu': [5.17, 0, 0],
     'ldauj': [0, 0, 0],
     'ldauprint': 2,
+    'lreal': 'Auto',
 }
 
 # specify a cutoff for picking only high-spin configurations from output
 # lower_cutoff = 1.7
+
+# specify if use fireworks database for managing calculations or not
+use_fireworks = False
+
+# if we do not itended to use fireworks we need to specify additional variables
+jobheader = """#!/bin/bash -l
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gpus=1
+#SBATCH --time=1-00:00:00
+#SBATCH --partition=gpu
+#SBATCH --output=vasp-%j.out
+#SBATCH --error=vasp-%j.error
+#SBATCH --mem=40G
+""" 
+
+calculator_command = "module load vasp/6.2.0; mpirun vasp_gpu"
+
+environment_activate = "source /trinity/shared/opt/anaconda3/bin/activate automag"
+
+environment_deactivate = "conda deactivate"
+
+
+
+

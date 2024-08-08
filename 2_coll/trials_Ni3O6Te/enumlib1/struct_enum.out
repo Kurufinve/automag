@@ -1,0 +1,65 @@
+ # <fortpy version="3" revision="247"></fortpy>
+generated 
+bulk
+  5.1000004       0.0000000       0.0000000        # a1 parent lattice vector
+  0.0000000       19.277519       0.0000000        # a2 parent lattice vector
+  2.5500002      -1.3492407       4.2055978        # a3 parent lattice vector
+   40 # Number of points in the multilattice
+  5.1000004       6.4681929       2.0751261        # d01 d-vector, labels: 0
+  5.1000004       16.106952       2.0751261        # d02 d-vector, labels: 0
+  2.5500002       1.6488131       2.0751261        # d03 d-vector, labels: 0
+  2.5500002       11.287572       2.0751261        # d04 d-vector, labels: 0
+  5.1000005      0.65959119       3.3039176        # d05 d-vector, labels: 1
+  5.1000005       10.298351       3.3039176        # d06 d-vector, labels: 1
+  2.5500002       5.4789709       3.3039176        # d07 d-vector, labels: 1
+  2.5500002       15.117731       3.3039176        # d08 d-vector, labels: 1
+  5.1000005       3.3039184       4.1522708        # d09 d-vector, labels: 2/3
+  5.1000005       12.942678       4.1522708        # d10 d-vector, labels: 2/3
+  2.5500002       8.1232979       4.1522708        # d11 d-vector, labels: 2/3
+  2.5500002       17.762057       4.1522708        # d12 d-vector, labels: 2/3
+  5.1000005       3.8212439       1.2259318        # d13 d-vector, labels: 4
+  5.1000005       13.460004       1.2259318        # d14 d-vector, labels: 4
+  2.5500003       8.6406240       1.2259318        # d15 d-vector, labels: 4
+  2.5500003       18.279384       1.2259318        # d16 d-vector, labels: 4
+  5.8642355       4.6141417       2.8404608        # d17 d-vector, labels: 5
+  5.8642355       14.252902       2.8404608        # d18 d-vector, labels: 5
+  3.3142353     -0.20523798       2.8404608        # d19 d-vector, labels: 5
+  3.3142353       9.4335221       2.8404608        # d20 d-vector, labels: 5
+ 0.73950006       5.4097890      0.36041972        # d21 d-vector, labels: 5
+ 0.73950006       15.048549      0.36041972        # d22 d-vector, labels: 5
+  3.2895004      0.59040926      0.36041972        # d23 d-vector, labels: 5
+  3.2895004       10.229169      0.36041972        # d24 d-vector, labels: 5
+  3.5962652       5.0054216       1.6208374        # d25 d-vector, labels: 5
+  3.5962652       14.644182       1.6208374        # d26 d-vector, labels: 5
+  1.0462651      0.18604184       1.6208374        # d27 d-vector, labels: 5
+  1.0462651       9.8248020       1.6208374        # d28 d-vector, labels: 5
+  4.1506352       6.7880735       3.8397107        # d29 d-vector, labels: 6
+  4.1506352       16.426834       3.8397107        # d30 d-vector, labels: 6
+  6.7006354       1.9686934       3.8397107        # d31 d-vector, labels: 6
+  6.7006354       11.607453       3.8397107        # d32 d-vector, labels: 6
+  1.8451801       7.2620617       2.3622842        # d33 d-vector, labels: 6
+  1.8451801       16.900822       2.3622842        # d34 d-vector, labels: 6
+  4.3951804       2.4426816       2.3622842        # d35 d-vector, labels: 6
+  4.3951804       12.081441       2.3622842        # d36 d-vector, labels: 6
+  4.2041854       7.7643840      0.79654023        # d37 d-vector, labels: 6
+  4.2041854       17.403144      0.79654023        # d38 d-vector, labels: 6
+  1.6541852       2.9450039      0.79654023        # d39 d-vector, labels: 6
+  1.6541852       12.583763      0.79654023        # d40 d-vector, labels: 6
+ 7-nary case
+   1   1 # Starting and ending cell sizes for search
+ 0.10000000E-06 # Epsilon (finite precision parameter)
+Concentration check:
+    T
+Including only structures of which the concentration   of each atom is in the range:
+Type 1:    0/   1 --    0/   1
+Type 2:    0/   1 --    0/   1
+Type 3:    1/   2 --    1/   2
+Type 4:    1/   2 --    1/   2
+Type 5:    0/   1 --    0/   1
+Type 6:    0/   1 --    0/   1
+Type 7:    0/   1 --    0/   1
+full list of labelings (including incomplete labelings) is used
+(Non)Equivalency list:  1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  28  29  30  31  32  33  34  35  36  37  38  39  40
+start   #tot      HNF     Hdegn   labdegn   Totdegn   #size idx    pg    SNF             HNF                 Left transform                          labeling
+          1         1       1        2        2           1   1     4   1  1  1    1  0  1  0  0  1      1    0    0    0    1    0    0    0    1   0000111122334444555555555555666666666666
+          2         1       1        4        4           2   1     4   1  1  1    1  0  1  0  0  1      1    0    0    0    1    0    0    0    1   0000111123234444555555555555666666666666

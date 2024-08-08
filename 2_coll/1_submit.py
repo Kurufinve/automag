@@ -7,6 +7,9 @@ Script which runs enumlib and submits calculations.
 .. codeauthor:: Michele Galasso <m.galasso@yandex.com>
 """
 
+# default values for some input variables
+use_fireworks = True
+
 from input import *
 
 import os
@@ -17,8 +20,12 @@ from itertools import product
 from pymatgen.io.vasp import Poscar
 from pymatgen.core.structure import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+from datetime import datetime
 
-from common.SubmitFirework import SubmitFirework
+if use_fireworks:
+    from common.SubmitFirework import SubmitFirework
+else:
+    from common.SubmitManual import SubmitManual
 
 
 def launch_enumlib(count, split):
@@ -182,9 +189,19 @@ for element in structure.composition.elements:
     else:
         element.is_magnetic = False
 
+# print(dir(structure))
+
 if os.path.exists('trials'):
-    print('Cannot create a folder named trials: an object with the same name already exists.')
-    exit()
+    # print('Cannot create a folder named trials: an object with the same name already exists.')
+    # exit()
+    # time = datetime.now().strftime('%Y-%m-%d%H_%M_%S')
+    # print(f'A folder named trials already exists. Moving it to the folder: trials_{structure.formula}_{time}')
+    # os.system(f"mv trials trials_{structure.formula}_{time}")
+    print(f'A folder named trials already exists. Removing it!')
+    os.system(f"mv trials trials_{structure.get_chemical_formula(mode='metal', empirical=True)}")
+    os.system(f"rm -rf trials")
+
+
 
 os.mkdir('trials')
 os.chdir('trials')
@@ -324,6 +341,13 @@ for i, (lattice, frac_coords, confs) in enumerate(zip(lattices, coordinates, con
             f.write(' '.join(f'{e:2d}' for e in conf_array[mask]))
             f.write('\n')
 
-        run = SubmitFirework(f'setting{i + 1:03d}.vasp', mode='singlepoint', fix_params=params, magmoms=conf,
-                             name=state)
-        run.submit()
+        if use_fireworks:
+            run = SubmitFirework(f'setting{i + 1:03d}.vasp', mode='singlepoint', fix_params=params, magmoms=conf,
+                                 name=state)
+            run.submit()
+
+        else:
+            run = SubmitManual(f'setting{i + 1:03d}.vasp', mode='singlepoint', fix_params=params, magmoms=conf,
+                                 name=state, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
+                                 environment_activate = environment_activate, environment_deactivate = environment_deactivate)
+            run.submit()

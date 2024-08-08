@@ -18,4 +18,4 @@ import os
 # exitcode = os.system('module load intel/mkl-11.2.3 mpi/impi-5.0.3 vasp/vasp-5.4.4; mpirun vasp_std')
 
 # vasp 6 module
-exitcode = os.system('module load vasp/6.1.1; mpirun vasp_std')
+exitcode = os.system('module load vasp/6.4.3; mpirun vasp_std')
