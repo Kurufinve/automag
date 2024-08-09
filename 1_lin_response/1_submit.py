@@ -7,6 +7,9 @@ Script which submits linear response U calculations.
 .. codeauthor:: Michele Galasso <m.galasso@yandex.com>
 """
 
+# default values for some input variables
+use_fireworks = True
+
 from input import *
 
 from ase.io import read
@@ -36,6 +39,12 @@ if 'configuration' not in globals():
                 configuration.append(0.0)
 
 # submit calculations
-run = SubmitFirework(path_to_poscar, mode='perturbations', fix_params=params, pert_values=perturbations,
-                     magmoms=configuration, dummy_atom=dummy_atom, dummy_position=dummy_position)
-run.submit()
+if use_fireworks:
+    run = SubmitFirework(path_to_poscar, mode='perturbations', fix_params=params, pert_values=perturbations,
+                         magmoms=configuration, dummy_atom=dummy_atom, dummy_position=dummy_position)
+    run.submit()
+else:
+    run = SubmitManual(path_to_poscar, mode='perturbations', fix_params=params, pert_values=perturbations,
+                       magmoms=configuration, dummy_atom=dummy_atom, dummy_position=dummy_position, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
+                       environment_activate = environment_activate, environment_deactivate = environment_deactivate)
+    run.submit()    

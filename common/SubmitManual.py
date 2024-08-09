@@ -129,31 +129,98 @@ class SubmitManual(object):
         except:
             pass
 
-        if name == 'nm':
+        if self.mode == 'singlepoint'
+            if name == 'nm':
 
-            if self.calculator == "vasp":
-                # only single-point run
-                self.write_vasp_input_files(state_dir,'singlepoint',params)
+                if self.calculator == "vasp":
+                    # only single-point run
+                    self.write_vasp_input_files(state_dir,'singlepoint',params)
 
 
 
+            else:
+
+                if self.calculator == "vasp":
+                    # single-point run + recalc run
+                    self.write_vasp_input_files(state_dir,'singlepoint+recalc',params)
+                    # # recalc run with magmoms from previous run
+                    # self.write_vasp_input_files(state_dir,'recalc',params)
+
+            # appending a line to the submit script 
+            script_name = f'{compound_dir}/{self.calculator}/run_all.sh'
+            if not os.path.exists(script_name):
+                with open(script_name,'w') as f:
+                    f.write('#!/bin/sh\n')
+                os.system(f'chmod +x {script_name}')
+            submit_command = f'cd {state_dir}; sbatch jobscript\n'
+            write_submit_script(script_name,submit_command)
+
+
+        elif self.mode == 'perturbations':
+            next_id = 2
+            nsc_fireworks = []
+            sc_fireworks = []
+            out_fireworks = []
+            for perturbation in self.pert_values:
+                nsc_firetask = VaspCalculationTask(
+                    calc_params=params,
+                    encode=encode,
+                    magmoms=self.magmoms,
+                    pert_step='NSC',
+                    pert_value=perturbation,
+                    dummy_atom=self.dummy_atom,
+                    atom_ucalc=atom_ucalc,
+                )
+
+                nsc_firework = Firework(
+                    [nsc_firetask],
+                    name='nsc',
+                    spec={'_pass_job_info': True},
+                    fw_id=next_id,
+                )
+
+                nsc_fireworks.append(nsc_firework)
+                next_id += 1
+
+                sc_firetask = VaspCalculationTask(
+                    calc_params=params,
+                    encode=encode,
+                    magmoms=self.magmoms,
+                    pert_step='SC',
+                    pert_value=perturbation,
+                    dummy_atom=self.dummy_atom,
+                    atom_ucalc=atom_ucalc,
+                )
+
+                sc_firework = Firework(
+                    [sc_firetask],
+                    name='sc',
+                    spec={'_pass_job_info': True},
+                    fw_id=next_id,
+                )
+
+                sc_fireworks.append(sc_firework)
+                next_id += 1
+
+                out_firetask = WriteChargesTask(
+                    filename='charges.txt',
+                    pert_value=perturbation,
+                    dummy_atom=self.dummy_atom,
+                )
+                out_firework = Firework(
+                    [out_firetask],
+                    name='write_charges',
+                    spec={'_queueadapter': {'ntasks': 1, 'walltime': '00:30:00'}},
+                    fw_id=next_id,
+                )
+
+                out_fireworks.append(out_firework)
+                next_id += 1
+
+            fireworks.append(nsc_fireworks)
+            fireworks.append(sc_fireworks)
+            fireworks.append(out_fireworks)
         else:
-
-            if self.calculator == "vasp":
-                # single-point run + recalc run
-                self.write_vasp_input_files(state_dir,'singlepoint+recalc',params)
-                # # recalc run with magmoms from previous run
-                # self.write_vasp_input_files(state_dir,'recalc',params)
-
-        # appending a line to the submit script 
-        
-        script_name = f'{compound_dir}/run_all.sh'
-        if not os.path.exists(script_name):
-            with open(script_name,'w') as f:
-                f.write('#!/bin/sh\n')
-            os.system(f'chmod +x {script_name}')
-        submit_command = f'cd {state_dir}; sbatch jobscript\n'
-        write_submit_script(script_name,submit_command)
 
     def set_magmoms(self,params):
 
@@ -197,7 +264,7 @@ class SubmitManual(object):
                 self['calc_params']['ldauj'].append(0)        
 
 
-    def write_vasp_input_files(self,state_dir,mode='singlepoint',params = None):
+    def write_vasp_input_files(self,state_dir,innermode='singlepoint',params = None):
 
         # if magmoms in input
         if 'magmoms' in self.__dict__.keys():
@@ -217,7 +284,7 @@ class SubmitManual(object):
         write_vasp_output_script_name = 'write_output_vasp.py'
         write_vasp_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_vasp_output_script_name}')
 
-        if mode == 'singlepoint' or mode == 'recalc':
+        if innermode == 'singlepoint' or innermode == 'recalc':
             workdir =  os.path.join(state_dir, mode)
 
             try:
@@ -236,7 +303,7 @@ class SubmitManual(object):
             calc.write_input(self.atoms)
 
             # create input script
-            if mode == 'singlepoint':
+            if innermode == 'singlepoint':
                 self.write_initial_magmoms(f'{workdir}/initial_magmoms.txt')
                 with open(f'{state_dir}/jobscript','w') as f:
                     f.write(self.jobheader)
@@ -254,7 +321,7 @@ class SubmitManual(object):
                     f.write('\n')
                     f.write(self.environment_deactivate)
 
-            elif mode == 'recalc':
+            elif innermode == 'recalc':
                 # write_magmoms_script_name = 'get_magmoms_vasp.py'
                 # write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
                 with open(f'{state_dir}/jobscript','w') as f:
@@ -282,7 +349,7 @@ class SubmitManual(object):
                     f.write(self.environment_deactivate)
 
 
-        elif mode == 'singlepoint+recalc':
+        elif innermode == 'singlepoint+recalc':
 
             workdir_singlepoint =  os.path.join(state_dir, 'singlepoint')
             workdir_recalc =  os.path.join(state_dir, 'recalc')

@@ -7,6 +7,9 @@ Script which computes the coupling constants between magnetic atoms.
 .. codeauthor:: Michele Galasso <m.galasso@yandex.com>
 """
 
+# default values for some input variables
+calculator = 'vasp'
+
 from input import *
 
 import os

@@ -1,5 +1,8 @@
+# name of the calculator with which singlepoint energies were computed
+calculator = 'vasp'
+
 # choose the configuration to use for Monte Carlo simulation
-configuration = 'afm61'
+configuration = 'afm1'
 
 # choose the cutoff radius in Angstrom for neighbor search
 cutoff_radius = 4.1

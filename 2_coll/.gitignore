@@ -1,0 +1,6 @@
+/trials*
+__pycache__
+*.pyc
+*.png
+*.txt
+*.vasp

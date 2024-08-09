@@ -4,8 +4,14 @@ automag.2_coll.2_plot_results
 
 Script which plots results of magnetic relaxations.
 
-.. codeauthor:: Michele Galasso <m.galasso@yandex.com>
+.. first codeauthor:: Michele Galasso <m.galasso@yandex.com>
+.. second codeauthor:: Daniil Poletaev <poletaev.dan@gmail.com>
 """
+
+# default values for some input variables
+use_fireworks = True
+calculator = 'vasp'
+
 
 from input import *
 
@@ -51,7 +57,7 @@ multiplicities = np.array([len(item) for item in symmetrized_structure.equivalen
 # path to results file with data
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
 # output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_singlepoint.txt")
-output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_singlepoint.txt")
+output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt")
 
 # exit if no trials folder
 if not os.path.isdir(f"trials_{structure.formula.replace(' ','')}"):
@@ -182,15 +188,15 @@ for state, energy in zip(final_states, final_energies):
         tc_energies.append(energy)
 
 # write states to file
-with open(f'states{final_setting:03d}.txt', 'wt') as f:
+with open(f"{structure.formula.replace(' ','')}_states{final_setting:03d}.txt", 'wt') as f:
     json.dump(tc_states, f)
 
 # write energies to file
-with open(f'energies{final_setting:03d}.txt', 'wt') as f:
+with open(f"{structure.formula.replace(' ','')}_energies{final_setting:03d}.txt", 'wt') as f:
     json.dump(tc_energies, f)
 
 # copy setting file with geometry
-shutil.copy(f"trials_{structure.formula.replace(' ','')}/setting{final_setting:03d}.vasp", '.')
+shutil.copy(f"trials_{structure.formula.replace(' ','')}/setting{final_setting:03d}.vasp", f"./{structure.formula.replace(' ','')}_setting{final_setting:03d}.vasp")
 
 # extract values for plot
 bar_labels = []
@@ -250,7 +256,7 @@ for i, (X, Y, kept_magmoms_chunk, bar_labels_chunk) in \
     plt.ylim(top=toplim)
 
     # save or show bar chart
-    plt.savefig(f'stability{i + 1:02d}.png', bbox_inches='tight')
+    plt.savefig(f"{structure.formula.replace(' ','')}_{calculator}_stability{i + 1:02d}.png", bbox_inches='tight')
     plt.close()
 
 print(f'The most stable configuration is {bar_labels[np.argmin(energies)]}.')

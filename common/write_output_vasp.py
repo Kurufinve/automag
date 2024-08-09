@@ -34,17 +34,21 @@ formula = atoms_final.get_chemical_formula(mode='metal')
 
 cwd = os.getcwd()
 state = cwd.split('/')[-2]
-calculator = cwd.split('/')[-3]
+# calculator = cwd.split('/')[-3]
+calculatro = 'vasp'
 compound = cwd.split('/')[-4]
 mode = cwd.split('/')[-1]
-calcid = re.search(r'\d+', state).group()
+try:
+    calcid = re.search(r'\d+', state).group()
+except:
+    calcid = 0
 
 if mode == 'singlepoint':
     calc_singlepoint = Vasp(directory=cwd)
     is_singlepoint_converged = calc_singlepoint.read_convergence()
     if is_singlepoint_converged: singlepoint_converged_string = 'convergedconverged'
     elif not is_singlepoint_converged: singlepoint_converged_string = 'NONCONVERGEDNONCONVERGED'
-    output_line = f'{state}       {calculator}  singlepoint=convergedconverged  {formula}'
+    output_line = f'{state}       {calcid}  singlepoint={singlepoint_converged_string}  {formula}   '
 elif mode == 'recalc':
     calc_singlepoint = Vasp(directory=cwd.replace('recalc','singlepoint'))
     is_singlepoint_converged = calc_singlepoint.read_convergence()
@@ -104,7 +108,7 @@ if read_magmoms:
 
     output_line += 'final_magmoms={}\n'.format(np.array2string(magmoms_final, 10000))
 
-    filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint.txt"
+    filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt"
 
 with open(os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold', filename), 'a') as f:
     f.write(output_line)

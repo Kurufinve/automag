@@ -4,11 +4,13 @@ automag.2_coll.1_submit
 
 Script which runs enumlib and submits calculations.
 
-.. codeauthor:: Michele Galasso <m.galasso@yandex.com>
+.. first codeauthor:: Michele Galasso <m.galasso@yandex.com>
+.. second codeauthor:: Daniil Poletaev <poletaev.dan@gmail.com>
 """
 
 # default values for some input variables
 use_fireworks = True
+calculator = 'vasp'
 
 from input import *
 
