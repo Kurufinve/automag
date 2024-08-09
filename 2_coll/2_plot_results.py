@@ -50,11 +50,12 @@ multiplicities = np.array([len(item) for item in symmetrized_structure.equivalen
 
 # path to results file with data
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_singlepoint.txt")
+# output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_singlepoint.txt")
+output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_singlepoint.txt")
 
 # exit if no trials folder
-if not os.path.isdir('trials'):
-    raise IOError('No trials folder found.')
+if not os.path.isdir(f"trials_{structure.formula.replace(' ','')}"):
+    raise IOError(f"No trials_{structure.formula.replace(' ','')} folder found.")
 
 # read lines
 lines, maginfos, presents = [], [], []
@@ -69,8 +70,8 @@ with open(output_file, 'rt') as f:
 data = {}
 setting = 1
 not_found = []
-while os.path.isfile(f'trials/configurations{setting:03d}.txt'):
-    with open(f'trials/configurations{setting:03d}.txt', 'rt') as f:
+while os.path.isfile(f"trials_{structure.formula.replace(' ','')}/configurations{setting:03d}.txt"):
+    with open(f"trials_{structure.formula.replace(' ','')}/configurations{setting:03d}.txt", 'rt') as f:
         for line in f:
             values = line.split()
             init_state = values[0]
@@ -189,7 +190,7 @@ with open(f'energies{final_setting:03d}.txt', 'wt') as f:
     json.dump(tc_energies, f)
 
 # copy setting file with geometry
-shutil.copy(f'trials/setting{final_setting:03d}.vasp', '.')
+shutil.copy(f"trials_{structure.formula.replace(' ','')}/setting{final_setting:03d}.vasp", '.')
 
 # extract values for plot
 bar_labels = []

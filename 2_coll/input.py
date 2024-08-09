@@ -1,12 +1,12 @@
 # name of the poscar file to use in the automag/geometries folder
-poscar_file = 'Ni3TeO6_setting005_1x2x1.vasp'
+poscar_file = 'Fe2O3-alpha_conventional.vasp'
 
 # maximum supercell size for generating distinct magnetic configurations
 supercell_size = 1
 
 # choose the absolute values given to up and down spins
 spin_values = {
-    'Ni': [2],
+    'Fe': [5],
 }
 
 # specify the calculator: 'vasp, 'qe', or 'fplo'
@@ -47,18 +47,17 @@ use_fireworks = False
 # if we do not itended to use fireworks we need to specify additional variables
 jobheader = """#!/bin/bash -l
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --gpus=1
+#SBATCH --ntasks=10
 #SBATCH --time=1-00:00:00
-#SBATCH --partition=gpu
+#SBATCH --partition=lenovo
 #SBATCH --output=vasp-%j.out
 #SBATCH --error=vasp-%j.error
-#SBATCH --mem=40G
+#SBATCH --reservation=dpoletaev_28
 """ 
 
-calculator_command = "module load vasp/6.2.0; mpirun vasp_gpu"
+calculator_command = "export UCX_TLS=ud,sm,self; module load vasp/6.4.3; mpirun vasp_std"
 
-environment_activate = "source /trinity/shared/opt/anaconda3/bin/activate automag"
+environment_activate = "source /home/dpoletaev/miniconda3/bin/activate automag"
 
 environment_deactivate = "conda deactivate"
 

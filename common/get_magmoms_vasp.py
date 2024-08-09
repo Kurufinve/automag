@@ -1,12 +1,14 @@
 import re
 import numpy as np
 from ase.io import read
+# from pymatgen.io.vasp import Poscar
 # from pymatgen.io.vasp import Incar, Outcar
 
 folder = 'singlepoint'
 input_file = 'INCAR'
 
 atoms = read(f'../{folder}/OUTCAR')
+
 
 # magmoms_vasp = atoms_vasp.get_magnetic_moments()
 

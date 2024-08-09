@@ -3,6 +3,9 @@ import sys
 import os
 import numpy as np
 from ase.io import read
+from ase.calculators.vasp import Vasp
+from pymatgen.core.structure import Structure
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 # from pymatgen.io.vasp import Incar, Outcar
 
 # default parameters for reading vasp output
@@ -23,7 +26,42 @@ filename = 'singlepoint.txt'
 
 atoms_final = read('OUTCAR')
 
+formula = atoms_final.get_chemical_formula(mode='metal')
+
+
+
 # print(np.array2string(magmoms, 10000))
+
+cwd = os.getcwd()
+state = cwd.split('/')[-2]
+calculator = cwd.split('/')[-3]
+compound = cwd.split('/')[-4]
+mode = cwd.split('/')[-1]
+calcid = re.search(r'\d+', state).group()
+
+if mode == 'singlepoint':
+    calc_singlepoint = Vasp(directory=cwd)
+    is_singlepoint_converged = calc_singlepoint.read_convergence()
+    if is_singlepoint_converged: singlepoint_converged_string = 'convergedconverged'
+    elif not is_singlepoint_converged: singlepoint_converged_string = 'NONCONVERGEDNONCONVERGED'
+    output_line = f'{state}       {calculator}  singlepoint=convergedconverged  {formula}'
+elif mode == 'recalc':
+    calc_singlepoint = Vasp(directory=cwd.replace('recalc','singlepoint'))
+    is_singlepoint_converged = calc_singlepoint.read_convergence()
+    calc_recalc = Vasp(directory=cwd)
+    is_recalc_converged = calc_recalc.read_convergence()
+    # print(f'is_singlepoint_converged: {is_singlepoint_converged}')
+    # print(f'is_recalc_converged: {is_recalc_converged}')
+    if is_singlepoint_converged: singlepoint_converged_string = 'convergedconverged'
+    elif not is_singlepoint_converged: singlepoint_converged_string = 'NONCONVERGEDNONCONVERGED'
+    if is_recalc_converged: recalc_converged_string = 'convergedconverged'
+    elif not is_recalc_converged: recalc_converged_string = 'NONCONVERGEDNONCONVERGED'
+    output_line = f'{state}       {calcid}  singlepoint={singlepoint_converged_string}  recalc={recalc_converged_string}   {formula}    '
+
+
+structure = Structure.from_file('CONTCAR')
+analyzer = SpacegroupAnalyzer(structure)
+output_line += '{:10s}  '.format(analyzer.get_space_group_symbol())
 
 
 if read_energy_convergence:
@@ -45,15 +83,18 @@ if read_enthalpy:
         for line in f:
             if 'enthalpy' in line:
                 enthalpy_line = line
-
-    output_line += 'enthalpy={}\n'.format(float(enthalpy_line.split()[4]) + correction)
+    try:
+        output_line += 'enthalpy={}\n'.format(float(enthalpy_line.split()[4]) + correction)
+    except:
+        output_line += 'energy={}\n'.format(atoms_final.get_potential_energy() + correction)
 else:
     output_line += 'energy={}\n'.format(atoms_final.get_potential_energy() + correction)
 
 if read_magmoms:
     with open('../singlepoint/initial_magmoms.txt','r') as f:
-        mamgoms = np.array(f.readlines().split(''))
-        # magmoms = np.array(self['initial_magmoms'])
+        lines = f.readlines()
+        print(lines[0])
+        magmoms = np.array([float(i) for i in lines[0].split()])
     output_line += '          initial_magmoms={}  '.format(np.array2string(magmoms, 10000))
 
     try:
@@ -63,48 +104,7 @@ if read_magmoms:
 
     output_line += 'final_magmoms={}\n'.format(np.array2string(magmoms_final, 10000))
 
-    filename = '_'.join(atoms_final.get_chemical_formula(mode='metal', empirical=True),'singlepoint.txt')
+    filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint.txt"
 
 with open(os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold', filename), 'a') as f:
     f.write(output_line)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-with open(input_file, 'r') as file:
-    file_content = file.read()
-
-# Define the pattern to search for
-pattern = r'MAGMOM = ([\d\.\*\s-]+)'
-match = re.search(pattern, file_content)
-
-if match:
-    magmom_str = match.group(1)
-    print("Found MAGMOM string:", magmom_str)
-
-    # Replace the numbers after "=" with numbers from a NumPy array
-    # Construct the new MAGMOM string
-    new_magmom_str = f'{np.array2string(magmoms, 10000)}'.replace('[','').replace(']', '')
-    new_content = file_content.replace(magmom_str, new_magmom_str)
-
-    # Write the updated content back to the file
-    with open(input_file, 'w') as file:
-        file.write(new_content)
-        print("Replacement completed and saved to the file.")
-else:
-    print("MAGMOM string not found in the file.")

@@ -122,7 +122,7 @@ class SubmitManual(object):
 
         # create working directory for manual submission
         calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-        compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal', empirical=True)}")
+        compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
         state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
         try:
             os.mkdir(state_dir)
@@ -145,6 +145,15 @@ class SubmitManual(object):
                 # # recalc run with magmoms from previous run
                 # self.write_vasp_input_files(state_dir,'recalc',params)
 
+        # appending a line to the submit script 
+        
+        script_name = f'{compound_dir}/run_all.sh'
+        if not os.path.exists(script_name):
+            with open(script_name,'w') as f:
+                f.write('#!/bin/sh\n')
+            os.system(f'chmod +x {script_name}')
+        submit_command = f'cd {state_dir}; sbatch jobscript\n'
+        write_submit_script(script_name,submit_command)
 
     def set_magmoms(self,params):
 
@@ -202,6 +211,12 @@ class SubmitManual(object):
             self.set_pert_step()
 
 
+        write_magmoms_script_name = 'get_magmoms_vasp.py'
+        write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
+
+        write_vasp_output_script_name = 'write_output_vasp.py'
+        write_vasp_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_vasp_output_script_name}')
+
         if mode == 'singlepoint' or mode == 'recalc':
             workdir =  os.path.join(state_dir, mode)
 
@@ -210,6 +225,8 @@ class SubmitManual(object):
             except:
                 pass
 
+            os.system(f'cp {write_magmoms_script_path} {workdir}')
+            os.system(f'cp {write_vasp_output_script_path} {workdir}')
 
             # creating ase.calculator object and writing input   
             calc = Vasp(atoms=self.atoms,
@@ -223,17 +240,27 @@ class SubmitManual(object):
                 self.write_initial_magmoms(f'{workdir}/initial_magmoms.txt')
                 with open(f'{state_dir}/jobscript','w') as f:
                     f.write(self.jobheader)
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                    f.write('\n')
                     f.write('\n')
                     f.write(f'cd {workdir}\n')
                     f.write('\n')
                     f.write(self.calculator_command)
                     f.write('\n')
+                    f.write(f'cp {write_vasp_output_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    f.write(f'python {write_vasp_output_script_name}\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
 
             elif mode == 'recalc':
-                write_magmoms_script_name = 'get_magmoms_vasp.py'
-                write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
+                # write_magmoms_script_name = 'get_magmoms_vasp.py'
+                # write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
                 with open(f'{state_dir}/jobscript','w') as f:
                     f.write(self.jobheader)
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                    f.write('\n')
                     f.write('\n')
                     f.write(f'cd {workdir}\n')
                     f.write('\n')
@@ -246,6 +273,14 @@ class SubmitManual(object):
                     f.write('\n')
                     f.write(self.calculator_command)
                     f.write('\n')
+                    f.write('\n')
+                    f.write(f'cp {write_vasp_output_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    f.write(f'python {write_vasp_output_script_name}\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
+
 
         elif mode == 'singlepoint+recalc':
 
@@ -273,11 +308,7 @@ class SubmitManual(object):
 
             calc_recalc.write_input(self.atoms)
 
-            write_magmoms_script_name = 'get_magmoms_vasp.py'
-            write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
 
-            write_vasp_output_script_name = 'write_output_vasp.py'
-            write_vasp_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_vasp_output_script_name}')
 
             os.system(f'cp {write_magmoms_script_path} {workdir_recalc}')
             os.system(f'cp {write_vasp_output_script_path} {workdir_recalc}')
@@ -286,6 +317,8 @@ class SubmitManual(object):
             self.write_initial_magmoms(f'{workdir_singlepoint}/initial_magmoms.txt')
             with open(f'{state_dir}/jobscript','w') as f:
                 f.write(self.jobheader)
+                f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                f.write('\n')
                 f.write('\n')
                 f.write(f'cd {workdir_singlepoint}\n')
                 f.write('\n')
@@ -305,7 +338,7 @@ class SubmitManual(object):
                 f.write(f'cp {write_vasp_output_script_path} .\n')
                 f.write(self.environment_activate)
                 f.write('\n')
-                f.write(f'python {write_magmoms_script_name}\n')
+                f.write(f'python {write_vasp_output_script_name}\n')
                 f.write('\n')
                 f.write(self.environment_deactivate)
         return
@@ -314,6 +347,13 @@ class SubmitManual(object):
 
         with open(path_to_file,'w') as f:
             for magmom in self.magmoms:
-                f.write('{magmom} ')
+                f.write(f'{magmom} ')
 
         return
+
+""" Helping functions """
+
+def write_submit_script(script_name,submit_command):
+
+    with open(script_name,'a') as f:
+        f.write(submit_command)

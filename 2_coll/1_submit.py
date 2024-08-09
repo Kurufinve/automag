@@ -15,6 +15,7 @@ from input import *
 import os
 import subprocess
 import numpy as np
+import shutil
 
 from itertools import product
 from pymatgen.io.vasp import Poscar
@@ -190,21 +191,28 @@ for element in structure.composition.elements:
         element.is_magnetic = False
 
 # print(dir(structure))
+# print(structure.formula.replace(' ',''))
 
-if os.path.exists('trials'):
+if os.path.exists(f"trials_{structure.formula.replace(' ','')}"):
     # print('Cannot create a folder named trials: an object with the same name already exists.')
     # exit()
     # time = datetime.now().strftime('%Y-%m-%d%H_%M_%S')
     # print(f'A folder named trials already exists. Moving it to the folder: trials_{structure.formula}_{time}')
     # os.system(f"mv trials trials_{structure.formula}_{time}")
-    print(f'A folder named trials already exists. Removing it!')
-    os.system(f"mv trials trials_{structure.get_chemical_formula(mode='metal', empirical=True)}")
-    os.system(f"rm -rf trials")
+    print(f'A folder named trials already exists. moving it to another folder!')
+    os.system(f"rm -rf trials_{structure.formula.replace(' ','')}_old")
+    try:
+        shutil.move(f"trials_{structure.formula.replace(' ','')}", f"trials_{structure.formula.replace(' ','')}_old")
+    except:
+        os.system(f"rm -rf trials_{structure.formula.replace(' ','')}_old")
+        shutil.move(f"trials_{structure.formula.replace(' ','')}", f"trials_{structure.formula.replace(' ','')}_old")
+    # os.system(f"mv trials_{structure.formula.replace(' ','')} trials_{structure.formula.replace(' ','')}_old")
+    os.system(f"rm -rf trials_{structure.formula.replace(' ','')}")
 
 
 
-os.mkdir('trials')
-os.chdir('trials')
+os.mkdir(f"trials_{structure.formula.replace(' ','')}")
+os.chdir(f"trials_{structure.formula.replace(' ','')}")
 
 # geometrical settings and respective lists of magnetic configurations
 lattices = [structure.lattice]
