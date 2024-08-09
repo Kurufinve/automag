@@ -129,7 +129,7 @@ class SubmitManual(object):
         except:
             pass
 
-        if self.mode == 'singlepoint'
+        if self.mode == 'singlepoint':
             if name == 'nm':
 
                 if self.calculator == "vasp":
