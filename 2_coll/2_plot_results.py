@@ -59,9 +59,19 @@ calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
 # output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_singlepoint.txt")
 output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt")
 
+
+trials_path = f"trials"
 # exit if no trials folder
-if not os.path.isdir(f"trials_{structure.formula.replace(' ','')}"):
-    raise IOError(f"No trials_{structure.formula.replace(' ','')} folder found.")
+if not os.path.isdir(trials_path):
+    print (f"No trials folder found. Seeking for trials_{structure.formula.replace(' ','')} folder")
+    trials_path = f"trials_{structure.formula.replace(' ','')}"
+
+    if not os.path.isdir(trials_path):
+        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')} folder")
+        trials_path = f"{structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')}"
+
+        if not os.path.isdir(trials_path):
+            raise IOError(f"No {structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')} folder found.")
 
 # read lines
 lines, maginfos, presents = [], [], []
@@ -76,8 +86,8 @@ with open(output_file, 'rt') as f:
 data = {}
 setting = 1
 not_found = []
-while os.path.isfile(f"trials_{structure.formula.replace(' ','')}/configurations{setting:03d}.txt"):
-    with open(f"trials_{structure.formula.replace(' ','')}/configurations{setting:03d}.txt", 'rt') as f:
+while os.path.isfile(f"{trials_path}/configurations{setting:03d}.txt"):
+    with open(f"{trials_path}/configurations{setting:03d}.txt", 'rt') as f:
         for line in f:
             values = line.split()
             init_state = values[0]
@@ -196,7 +206,7 @@ with open(f"{structure.formula.replace(' ','')}_energies{final_setting:03d}.txt"
     json.dump(tc_energies, f)
 
 # copy setting file with geometry
-shutil.copy(f"trials_{structure.formula.replace(' ','')}/setting{final_setting:03d}.vasp", f"./{structure.formula.replace(' ','')}_setting{final_setting:03d}.vasp")
+shutil.copy(f"{trials_path}/setting{final_setting:03d}.vasp", f"./{structure.formula.replace(' ','')}_setting{final_setting:03d}.vasp")
 
 # extract values for plot
 bar_labels = []
@@ -263,3 +273,15 @@ print(f'The most stable configuration is {bar_labels[np.argmin(energies)]}.')
 if np.logical_not(kept_magmoms[np.argmin(energies)]):
     print('WARNING: values of initial and final magnetic moments of the most stable configuration '
           'significantly differ.')
+
+# moving files and figures into a separate folder
+os.system(f"mkdir {structure.formula.replace(' ','')}")
+os.system(f"cp -f input.py {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_stability*.png {structure.formula.replace(' ','')}")
+try:
+    os.system(f"mv -f trials_{structure.formula.replace(' ','')} {structure.formula.replace(' ','')}")
+except:
+    pass
+os.system(f"mv -f {structure.formula.replace(' ','')}_setting*.vasp {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_energies*.txt {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_states*.txt {structure.formula.replace(' ','')}")
