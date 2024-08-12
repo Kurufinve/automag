@@ -198,15 +198,15 @@ for state, energy in zip(final_states, final_energies):
         tc_energies.append(energy)
 
 # write states to file
-with open(f"{structure.formula.replace(' ','')}_states{final_setting:03d}.txt", 'wt') as f:
+with open(f"{structure.formula.replace(' ','')}_{calculator}_states{final_setting:03d}.txt", 'wt') as f:
     json.dump(tc_states, f)
 
 # write energies to file
-with open(f"{structure.formula.replace(' ','')}_energies{final_setting:03d}.txt", 'wt') as f:
+with open(f"{structure.formula.replace(' ','')}_{calculator}_energies{final_setting:03d}.txt", 'wt') as f:
     json.dump(tc_energies, f)
 
 # copy setting file with geometry
-shutil.copy(f"{trials_path}/setting{final_setting:03d}.vasp", f"./{structure.formula.replace(' ','')}_setting{final_setting:03d}.vasp")
+shutil.copy(f"{trials_path}/setting{final_setting:03d}.vasp", f"./{structure.formula.replace(' ','')}_{calculator}_setting{final_setting:03d}.vasp")
 
 # extract values for plot
 bar_labels = []
@@ -276,12 +276,12 @@ if np.logical_not(kept_magmoms[np.argmin(energies)]):
 
 # moving files and figures into a separate folder
 os.system(f"mkdir {structure.formula.replace(' ','')}")
-os.system(f"cp -f input.py {structure.formula.replace(' ','')}")
+os.system(f"cp -f input.py {structure.formula.replace(' ','')}/input_{calculator}.py")
 os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_stability*.png {structure.formula.replace(' ','')}")
 try:
     os.system(f"mv -f trials_{structure.formula.replace(' ','')} {structure.formula.replace(' ','')}")
 except:
     pass
-os.system(f"mv -f {structure.formula.replace(' ','')}_setting*.vasp {structure.formula.replace(' ','')}")
-os.system(f"mv -f {structure.formula.replace(' ','')}_energies*.txt {structure.formula.replace(' ','')}")
-os.system(f"mv -f {structure.formula.replace(' ','')}_states*.txt {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_setting*.vasp {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_energies*.txt {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_states*.txt {structure.formula.replace(' ','')}")
