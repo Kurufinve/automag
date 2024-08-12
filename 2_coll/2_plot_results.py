@@ -11,11 +11,21 @@ Script which plots results of magnetic relaxations.
 # default values for some input variables
 use_fireworks = True
 calculator = 'vasp'
+create_cc_input = True # if create input.py for coupling constants calculation in 3_monte_carlo folder
+create_mae_input = True # if create input.py for MAE calculation in 4_mae folder
 
+import os,sys
 
-from input import *
+cwd = os.getcwd()
 
-import os
+try:
+    input_file = sys.argv[1]
+    print(f'Using the {input_file} file as input')
+    from input_file import *
+except IndexError:
+    print(f'Using the default input.py file from folder: {cwd}')
+    from input import *
+
 import json
 import shutil
 import numpy as np
@@ -67,8 +77,8 @@ if not os.path.isdir(trials_path):
     trials_path = f"trials_{structure.formula.replace(' ','')}"
 
     if not os.path.isdir(trials_path):
-        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')} folder")
-        trials_path = f"{structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')}"
+        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {structure.formula.replace(' ','')}_{calculator}/trials_{structure.formula.replace(' ','')} folder")
+        trials_path = f"{structure.formula.replace(' ','')}_{calculator}/trials_{structure.formula.replace(' ','')}"
 
         if not os.path.isdir(trials_path):
             raise IOError(f"No {structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')} folder found.")
@@ -275,13 +285,16 @@ if np.logical_not(kept_magmoms[np.argmin(energies)]):
           'significantly differ.')
 
 # moving files and figures into a separate folder
-os.system(f"mkdir {structure.formula.replace(' ','')}")
-os.system(f"cp -f input.py {structure.formula.replace(' ','')}/input_{calculator}.py")
-os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_stability*.png {structure.formula.replace(' ','')}")
+os.system(f"mkdir {structure.formula.replace(' ','')}_{calculator}")
+os.system(f"cp -f input.py {structure.formula.replace(' ','')}_{calculator}/input_{calculator}.py")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_stability*.png {structure.formula.replace(' ','')}_{calculator}")
 try:
-    os.system(f"mv -f trials_{structure.formula.replace(' ','')} {structure.formula.replace(' ','')}")
+    os.system(f"mv -f trials_{structure.formula.replace(' ','')} {structure.formula.replace(' ','')}_{calculator}")
 except:
     pass
-os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_setting*.vasp {structure.formula.replace(' ','')}")
-os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_energies*.txt {structure.formula.replace(' ','')}")
-os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_states*.txt {structure.formula.replace(' ','')}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_setting*.vasp {structure.formula.replace(' ','')}_{calculator}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_energies*.txt {structure.formula.replace(' ','')}_{calculator}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_states*.txt {structure.formula.replace(' ','')}_{calculator}")
+
+# acrhiving the folder
+os.system(f"tar -zcvf {structure.formula.replace(' ','')}_{calculator}.tar.gz {structure.formula.replace(' ','')}_{calculator}")

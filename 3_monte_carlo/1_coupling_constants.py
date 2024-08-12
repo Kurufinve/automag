@@ -4,7 +4,8 @@ automag.3_monte_carlo.1_coupling_constants.py
 
 Script which computes the coupling constants between magnetic atoms.
 
-.. codeauthor:: Michele Galasso <m.galasso@yandex.com>
+.. first codeauthor:: Michele Galasso <m.galasso@yandex.com>
+.. second codeauthor:: Daniil Poletaev <poletaev.dan@gmail.com>
 """
 
 # default values for some input variables
@@ -20,13 +21,17 @@ import matplotlib.ticker as ticker
 
 from pymatgen.core.structure import Structure
 
+# full path to poscar file
+path_to_poscar = '../geometries/' + poscar_file 
+input_structure = Structure.from_file(poscar_file)
+
 # initialize variables
 structure = None
 states = None
 energies = None
 
 # read input files from previous step
-for item in os.listdir('../2_coll'):
+for item in os.listdir(f'../2_coll/{}'):
     rel_path = os.path.join('../2_coll', item)
     if os.path.isfile(rel_path):
         if item.startswith('setting') and item.endswith('.vasp'):

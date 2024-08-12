@@ -1,6 +1,3 @@
-# name of the calculator with which singlepoint energies were computed
-calculator = 'vasp'
-
 # choose the configuration to use for Monte Carlo simulation
 configuration = 'afm1'
 
@@ -15,3 +12,9 @@ append_coupling_constants = False
 
 # choose the atomic types to be considered magnetic (default transition metals)
 # magnetic_atoms = ['Mn']
+
+# name of the poscar file to use in the automag/geometries folder
+poscar_file = 'Fe2O3-alpha_conventional.vasp'
+
+# name of the calculator with which singlepoint energies were computed
+calculator = 'vasp'

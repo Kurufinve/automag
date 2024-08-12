@@ -12,7 +12,15 @@ Script which runs enumlib and submits calculations.
 use_fireworks = True
 calculator = 'vasp'
 
-from input import *
+cwd = os.getcwd()
+
+try:
+    input_file = sys.argv[1]
+    print(f'Using the {input_file} file as input')
+    from input_file import *
+except IndexError:
+    print(f'Using the default input.py file from folder: {cwd}')
+    from input import *
 
 import os
 import subprocess
@@ -178,7 +186,8 @@ def launch_enumlib(count, split):
 
 
 # full path to poscar file
-path_to_poscar = '../geometries/' + poscar_file
+# path_to_poscar = '../geometries/' + poscar_file
+path_to_poscar = os.path.join(os.environ.get('AUTOMAG_PATH'),f'/geometries/{poscar_file}')
 
 # create Structure and SymmetrizedStructure objects
 structure = Structure.from_file(path_to_poscar)
