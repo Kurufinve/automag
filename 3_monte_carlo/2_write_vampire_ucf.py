@@ -6,22 +6,50 @@ Script which runs Vampire for Monte Carlo simulation.
 
 .. codeauthor:: Michele Galasso <m.galasso@yandex.com>
 """
+import os,sys
 
-from input import *
+cwd = os.getcwd()
 
-import os
+try:
+    input_file = sys.argv[1]
+    print(f'Using the {input_file} file as input')
+    try:
+        exec(f'from {input_file.split('.')[0]} import *')
+    except:
+        from input import *
+except IndexError:
+    print(f'Using the input.py file from folder: {cwd}')
+    from input import *
+
+    
 import numpy as np
 
 from pymatgen.core.structure import Structure
 
-# raise IOError if no trials folder
-if not os.path.isdir('../2_coll/trials'):
-    raise IOError('No trials folder found in ../2_coll.')
+# full path to poscar file
+rel_path_to_poscar = '/geometries/' + poscar_file
+path_to_automag = os.environ.get('AUTOMAG_PATH')
+path_to_poscar = path_to_automag + rel_path_to_poscar
+input_structure = Structure.from_file(path_to_poscar)
+
+formula = input_structure.formula.replace(' ','')
+path_to_automag = os.environ.get('AUTOMAG_PATH')
+# path to the folder with results from collinear calculations
+path_to_coll = path_to_automag + '/2_coll/' + f'{formula}/{formula}_{calculator}/'
+if not os.path.isdir(path_to_coll):
+    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
+    if not os.path.isdir(path_to_coll):
+        path_to_coll = path_to_automag + '/2_coll/'
+
+print(f'Path to the results from collinear calculations: {path_to_coll}')
+
+path_to_trials = path_to_coll + f'trials_{formula}/'
 
 setting = 1
 magmom = None
-while os.path.isfile(f'../2_coll/trials/configurations{setting:03d}.txt'):
-    with open(f'../2_coll/trials/configurations{setting:03d}.txt', 'rt') as f:
+# while os.path.isfile(f'../2_coll/trials/configurations{setting:03d}.txt'):
+while os.path.isfile(f'{path_to_trials}/configurations{setting:03d}.txt'):
+    with open(f'{path_to_trials}/configurations{setting:03d}.txt', 'rt') as f:
         for line in f:
             values = line.split()
             if values[0] == configuration:
@@ -38,7 +66,7 @@ if magmom is None:
 materials = [0 if item >= 0 else 1 for item in magmom]
 
 # create a pymatgen Structure object
-structure = Structure.from_file(f'../2_coll/trials/setting{setting:03d}.vasp')
+structure = Structure.from_file(f'{path_to_trials}/setting{setting:03d}.vasp')
 
 # find out which atoms are magnetic
 for element in structure.composition.elements:
@@ -55,11 +83,16 @@ structure.remove_species(non_magnetic_atoms)
 center_indices, point_indices, offset_vectors, distances = structure.get_neighbor_list(cutoff_radius)
 
 # get thresholds for comparing atomic distances
-thresholds = [(a + b) / 2 for a, b in zip(distances_between_neighbors[:-1], distances_between_neighbors[1:])]
+# thresholds = [(a + b) / 2 for a, b in zip(distances_between_neighbors[:-1], distances_between_neighbors[1:])]
+thresholds = [(a + b) / 2 for a, b in zip(distances[:-1], distances[1:])]
 thresholds = [0.0] + thresholds + [100.0]
 
+try:
+    os.mkdir('vampire')
+except:
+    pass
 # print unit cell size for VAMPIRE input
-with open('vamp.ucf', 'w') as f:
+with open('vampire/vamp.ucf', 'w') as f:
     f.write('# Unit cell size:\n')
     f.write(f'{structure.lattice.a:19.16f}  {structure.lattice.b:19.16f}  {structure.lattice.c:19.16f}\n')
 

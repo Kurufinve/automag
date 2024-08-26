@@ -8,17 +8,38 @@ Script which submits linear response U calculations.
 """
 
 # default values for some input variables
-use_fireworks = True
+use_fireworks = False
+calculator = 'vasp'
 
-from input import *
+import os,sys
+
+cwd = os.getcwd()
+
+try:
+    input_file = sys.argv[1]
+    print(f'Using the {input_file} file as input')
+    try:
+        exec(f"from {input_file.split('.')[0]} import *")
+    except:
+        from input import *
+except IndexError:
+    print(f'Using the input.py file from folder: {cwd}')
+    from input import *
+
 
 from ase.io import read
 from pymatgen.core.structure import Structure
 
-from common.SubmitFirework import SubmitFirework
+if use_fireworks:
+    from common.SubmitFirework import SubmitFirework
+else:
+    from common.SubmitManual import SubmitManual
 
 # full path to poscar file
-path_to_poscar = '../geometries/' + poscar_file
+rel_path_to_poscar = '/geometries/' + poscar_file
+path_to_automag = os.environ.get('AUTOMAG_PATH')
+path_to_poscar = path_to_automag + rel_path_to_poscar
+
 
 # create ase.Atoms object
 atoms = read(path_to_poscar)
@@ -45,6 +66,7 @@ if use_fireworks:
     run.submit()
 else:
     run = SubmitManual(path_to_poscar, mode='perturbations', fix_params=params, pert_values=perturbations,
-                       magmoms=configuration, dummy_atom=dummy_atom, dummy_position=dummy_position, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
+                       magmoms=configuration, name='perturbations', dummy_atom=dummy_atom, dummy_position=dummy_position, 
+                       calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
                        environment_activate = environment_activate, environment_deactivate = environment_deactivate)
     run.submit()    

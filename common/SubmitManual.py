@@ -15,6 +15,7 @@ from typing import Union
 from itertools import product
 import os
 from ase.calculators.vasp import Vasp
+from pymatgen.core.periodic_table import Element
 
 
 # from common.utilities import atoms_to_encode #, VaspCalculationTask, WriteOutputTask, WriteChargesTask
@@ -25,7 +26,7 @@ class SubmitManual(object):
                  kpts_values: Union[list, range] = None, pert_values: Union[list, range] = None,
                  name: str = None, dummy_atom: str = None, dummy_position: int = None, 
                  calculator: str = 'vasp', jobheader: str = '#!/bin/bash', calculator_command: str = None, 
-                 environment_activate: str = None, environment_deactivate: str = None):
+                 environment_activate: str = None, environment_deactivate: str = None, exec_command: str = 'exec'):
         if mode == 'encut':
             assert encut_values is not None
             assert sigma_values is None
@@ -76,9 +77,19 @@ class SubmitManual(object):
         self.dummy_position = dummy_position
         self.calculator = calculator
         self.jobheader = jobheader
+        self.exec_command = exec_command
         self.calculator_command = calculator_command
         self.environment_activate = environment_activate
         self.environment_deactivate = environment_deactivate
+
+        self.write_charges_script_name = 'write_charges.py'
+        self.write_charges_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_charges_script_name}')
+
+        self.write_magmoms_script_name = 'write_magmoms_input.py'
+        self.write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_magmoms_script_name}')
+
+        self.write_output_script_name = 'write_output.py'
+        self.write_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_output_script_name}')        
 
     def submit(self):
         params = copy(self.fix_params)
@@ -110,15 +121,6 @@ class SubmitManual(object):
 
         # create an atoms object as a class atribute to make it accesible across the class methods and encode it
         self.atoms = read(self.poscar_file)
-        if self.mode == 'perturbations':
-            ch_symbols = self.atoms.get_chemical_symbols()
-            atom_ucalc = ch_symbols[self.dummy_position]
-            ch_symbols[self.dummy_position] = self.dummy_atom
-            self.atoms.set_chemical_symbols(ch_symbols)
-            # encode = atoms_to_encode(self.atoms)
-        else:
-            # encode = atoms_to_encode(self.atoms)
-            pass
 
         # create working directory for manual submission
         calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
@@ -132,19 +134,70 @@ class SubmitManual(object):
         if self.mode == 'singlepoint':
             if name == 'nm':
 
+                # write 
                 if self.calculator == "vasp":
                     # only single-point run
                     self.write_vasp_input_files(state_dir,'singlepoint',params)
 
-
-
+                # write jobscript
+                with open(f'{state_dir}/jobscript','w') as f:
+                    f.write(self.jobheader)
+                    if '#SBATCH' in self.jobheader:
+                        print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.name} calculation")
+                        f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                    f.write('\n')
+                    f.write('\n')
+                    f.write(f'cd {state_dir}/singlepoint \n')
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+                    f.write(f'rm WAVECAR CHG\n') # remove large files
+                    f.write(f'cp {self.write_output_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    if self.calculator == "vasp":
+                        f.write(f'python {self.write_output_script_name} vasp\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
             else:
 
                 if self.calculator == "vasp":
                     # single-point run + recalc run
                     self.write_vasp_input_files(state_dir,'singlepoint+recalc',params)
-                    # # recalc run with magmoms from previous run
-                    # self.write_vasp_input_files(state_dir,'recalc',params)
+
+                # write jobscript
+                with open(f'{state_dir}/jobscript','w') as f:
+                    f.write(self.jobheader)
+                    if '#SBATCH' in self.jobheader:
+                        print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.name} calculation")
+                        f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                    f.write('\n')
+                    f.write('\n')
+                    f.write(f'cd {state_dir}/singlepoint\n')
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+                    f.write(f'rm WAVECAR CHG\n') # remove large files
+                    f.write(f'cd {state_dir}/recalc\n')
+                    f.write('\n')
+                    f.write(f'cp {self.write_magmoms_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    if self.calculator == "vasp":
+                        f.write(f'python {self.write_magmoms_script_name} vasp\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+                    f.write(f'rm WAVECAR CHG\n') # remove large files
+                    f.write(f'cp {self.write_output_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    if self.calculator == "vasp":
+                        f.write(f'python {self.write_output_script_name} vasp\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
 
             # appending a line to the submit script 
             script_name = f'{compound_dir}/{self.calculator}/run_all.sh'
@@ -152,75 +205,116 @@ class SubmitManual(object):
                 with open(script_name,'w') as f:
                     f.write('#!/bin/sh\n')
                 os.system(f'chmod +x {script_name}')
-            submit_command = f'cd {state_dir}; sbatch jobscript\n'
+            submit_command = f'cd {state_dir}; {self.exec_command} jobscript\n'
             write_submit_script(script_name,submit_command)
 
 
         elif self.mode == 'perturbations':
-            next_id = 2
-            nsc_fireworks = []
-            sc_fireworks = []
-            out_fireworks = []
+
+            self.ch_symbols = self.atoms.get_chemical_symbols()
+            self.atom_ucalc = self.ch_symbols[self.dummy_position]
+            self.ch_symbols[self.dummy_position] = self.dummy_atom
+            # state_dir_pert = os.path.join(state_dir, 'perturbations')
+            state_dir_pert = state_dir
+            self.atoms.set_chemical_symbols(self.ch_symbols)
+
+            print(f' atom_ucalc = {self.atom_ucalc}')
+            print(f' dummy_atom = {self.dummy_atom}')
+
+            # resolving the path to VASP pseudos
+            if self.calculator == "vasp":
+                if 'xc' in params.keys():
+                    if params['xc'] == 'PBE':
+                        pp_path = os.path.join(os.environ.get('VASP_PP_PATH'), 'potpaw_PBE')
+                    elif params['xc'] == 'LDA':
+                        pp_path = os.path.join(os.environ.get('VASP_PP_PATH'), 'potpaw_LDA')
+                else:
+                    pp_path = os.path.join(os.environ.get('VASP_PP_PATH'), 'potpaw_PBE')
+
+                # checking if the '_sv', '_pv', '_GW' or other version of PAW potential is used
+                if 'setups' in params.keys():
+                    if isinstance(params['setups'], dict):
+                        if self.atom_ucalc in params['setups'].keys():
+                            potpaw_name = self.atom_ucalc + params['setups'][self.atom_ucalc]
+                        else:
+                            potpaw_name = self.atom_ucalc
+                    else:
+                        potpaw_name = self.atom_ucalc
+                else:
+                    potpaw_name = self.atom_ucalc
+
+                atom_ucalc_pp_path = os.path.join(pp_path, f'{potpaw_name}/POTCAR')
+                dummy_atom_pp_path = os.path.join(pp_path, f'{self.dummy_atom}/POTCAR')
+
+                dummy_atom_pp_path_temp = os.path.join(pp_path, f'{self.dummy_atom}/_POTCAR')
+
+                print(f'atom_ucalc_pp_path = {atom_ucalc_pp_path}')
+                print(f'dummy_atom_pp_path = {dummy_atom_pp_path}')
+
+                # temporary renaming the dummy atom POTCAR
+                os.system(f'mv {dummy_atom_pp_path} {dummy_atom_pp_path_temp}')
+                
+                # copying the ucalc atom POTCAR to the dummy atom folder 
+                os.system(f'cp {atom_ucalc_pp_path} {dummy_atom_pp_path}')
+
+
+
+
+            # write files for common singlepoint calculation for WAVECAR and CHGCAR
+            self.write_vasp_input_files(state_dir_pert,'singlepoint',params)
+
+            # start writing common jobscript for singlepoint calculation and calculations for all perturbations
+            with open(f'{state_dir}/jobscript','w') as f:
+                f.write(self.jobheader)
+                if '#SBATCH' in self.jobheader:
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.name} calculations")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                f.write('\n')
+                f.write('\n')
+                f.write(f'cd {state_dir_pert}/singlepoint\n')
+                f.write('\n')
+                f.write(self.calculator_command)
+                f.write('\n')
+
+            # write files for perturbation calculations at different pert values
             for perturbation in self.pert_values:
-                nsc_firetask = VaspCalculationTask(
-                    calc_params=params,
-                    encode=encode,
-                    magmoms=self.magmoms,
-                    pert_step='NSC',
-                    pert_value=perturbation,
-                    dummy_atom=self.dummy_atom,
-                    atom_ucalc=atom_ucalc,
-                )
+                print(f'perturbation: {perturbation}')
+                pert_dir = os.path.join(state_dir_pert, f'{perturbation}')
 
-                nsc_firework = Firework(
-                    [nsc_firetask],
-                    name='nsc',
-                    spec={'_pass_job_info': True},
-                    fw_id=next_id,
-                )
+                self.write_vasp_input_files(pert_dir,'nsc',params,pert_value=perturbation)
+                self.write_vasp_input_files(pert_dir,'sc',params,pert_value=perturbation)
 
-                nsc_fireworks.append(nsc_firework)
-                next_id += 1
+                # appending the part to the jobscript
+                with open(f'{state_dir}/jobscript','a') as f:
+                    f.write('\n')
+                    f.write(f'cd {pert_dir}/nsc\n')
+                    f.write(f'cp ../../singlepoint/WAVECAR . \n')
+                    f.write(f'cp ../../singlepoint/CHGCAR . \n')
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+                    f.write(f'cd {pert_dir}/sc\n')
+                    f.write(f'cp ../../singlepoint/WAVECAR . \n')
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
 
-                sc_firetask = VaspCalculationTask(
-                    calc_params=params,
-                    encode=encode,
-                    magmoms=self.magmoms,
-                    pert_step='SC',
-                    pert_value=perturbation,
-                    dummy_atom=self.dummy_atom,
-                    atom_ucalc=atom_ucalc,
-                )
+            # os.system(f'cp {self.write_charges_script_path} {state_dir_pert}')
+            with open(f'{state_dir}/jobscript','a') as f:
+                f.write(f'cd {state_dir}\n')
+                f.write(f'cp {self.write_charges_script_path} .\n')
+                f.write(self.environment_activate)
+                f.write('\n')
+                if self.calculator == "vasp":
+                    f.write(f'python {self.write_charges_script_name} vasp\n')
+                f.write('\n')
+                f.write(self.environment_deactivate)
 
-                sc_firework = Firework(
-                    [sc_firetask],
-                    name='sc',
-                    spec={'_pass_job_info': True},
-                    fw_id=next_id,
-                )
+            # restoring the name of the dummy atom POTCAR
+            os.system(f'mv {dummy_atom_pp_path_temp} {dummy_atom_pp_path}')
 
-                sc_fireworks.append(sc_firework)
-                next_id += 1
-
-                out_firetask = WriteChargesTask(
-                    filename='charges.txt',
-                    pert_value=perturbation,
-                    dummy_atom=self.dummy_atom,
-                )
-                out_firework = Firework(
-                    [out_firetask],
-                    name='write_charges',
-                    spec={'_queueadapter': {'ntasks': 1, 'walltime': '00:30:00'}},
-                    fw_id=next_id,
-                )
-
-                out_fireworks.append(out_firework)
-                next_id += 1
-
-            fireworks.append(nsc_fireworks)
-            fireworks.append(sc_fireworks)
-            fireworks.append(out_fireworks)
         else:
+            pass
 
     def set_magmoms(self,params):
 
@@ -239,32 +333,7 @@ class SubmitManual(object):
         return params
 
 
-    def set_pert_step(self):
-        atom_ucalc = Element(self['atom_ucalc'])
-        elem_list_sorted, indices = np.unique(self.atoms.get_chemical_symbols(), return_index=True)
-        elem_list = elem_list_sorted[np.argsort(indices)]
-
-        self['calc_params']['ldaul'] = []
-        self['calc_params']['ldauu'] = []
-        self['calc_params']['ldauj'] = []
-        for atom in elem_list:
-            if atom == self['dummy_atom']:
-                if atom_ucalc.is_transition_metal:
-                    self['calc_params']['ldaul'].append(2)
-                elif atom_ucalc.is_lanthanoid or atom_ucalc.is_actinoid:
-                    self['calc_params']['ldaul'].append(3)
-                else:
-                    raise ValueError(f"Cannot calculate U for the element {self['atom_ucalc']}")
-
-                self['calc_params']['ldauu'].append(self['pert_value'])
-                self['calc_params']['ldauj'].append(self['pert_value'])
-            else:
-                self['calc_params']['ldaul'].append(-1)
-                self['calc_params']['ldauu'].append(0)
-                self['calc_params']['ldauj'].append(0)        
-
-
-    def write_vasp_input_files(self,state_dir,innermode='singlepoint',params = None):
+    def write_vasp_input_files(self,state_dir,innermode='singlepoint',params = None, pert_value = None):
 
         # if magmoms in input
         if 'magmoms' in self.__dict__.keys():
@@ -272,28 +341,23 @@ class SubmitManual(object):
             # self.set_magmoms()
             params = self.set_magmoms(params)
 
-        # if perturbation calculation
-        if 'pert_step' in self.__dict__.keys():
-            # if self.pert_step != None:
-            self.set_pert_step()
+        # # if perturbation calculation
+        # if 'pert_step' in self.__dict__.keys():
+        #     # if self.pert_step != None:
+        #     self.set_pert_step()
 
 
-        write_magmoms_script_name = 'get_magmoms_vasp.py'
-        write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
-
-        write_vasp_output_script_name = 'write_output_vasp.py'
-        write_vasp_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_vasp_output_script_name}')
 
         if innermode == 'singlepoint' or innermode == 'recalc':
-            workdir =  os.path.join(state_dir, mode)
+            workdir =  os.path.join(state_dir, innermode)
 
             try:
                 os.mkdir(workdir)
             except:
                 pass
 
-            os.system(f'cp {write_magmoms_script_path} {workdir}')
-            os.system(f'cp {write_vasp_output_script_path} {workdir}')
+            # os.system(f'cp {write_magmoms_script_path} {workdir}')
+            # os.system(f'cp {write_vasp_output_script_path} {workdir}')
 
             # creating ase.calculator object and writing input   
             calc = Vasp(atoms=self.atoms,
@@ -304,49 +368,40 @@ class SubmitManual(object):
 
             # create input script
             if innermode == 'singlepoint':
-                self.write_initial_magmoms(f'{workdir}/initial_magmoms.txt')
-                with open(f'{state_dir}/jobscript','w') as f:
-                    f.write(self.jobheader)
-                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
-                    f.write('\n')
-                    f.write('\n')
-                    f.write(f'cd {workdir}\n')
-                    f.write('\n')
-                    f.write(self.calculator_command)
-                    f.write('\n')
-                    f.write(f'cp {write_vasp_output_script_path} .\n')
-                    f.write(self.environment_activate)
-                    f.write('\n')
-                    f.write(f'python {write_vasp_output_script_name}\n')
-                    f.write('\n')
-                    f.write(self.environment_deactivate)
+
+                if self.mode == 'singlepoint':
+                    self.write_initial_magmoms(f'{workdir}/initial_magmoms.txt')
+
 
             elif innermode == 'recalc':
-                # write_magmoms_script_name = 'get_magmoms_vasp.py'
-                # write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
-                with open(f'{state_dir}/jobscript','w') as f:
-                    f.write(self.jobheader)
-                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
-                    f.write('\n')
-                    f.write('\n')
-                    f.write(f'cd {workdir}\n')
-                    f.write('\n')
-                    f.write(f'cp {write_magmoms_script_path} .\n')
-                    f.write(self.environment_activate)
-                    f.write('\n')
-                    f.write(f'python {write_magmoms_script_name}\n')
-                    f.write('\n')
-                    f.write(self.environment_deactivate)
-                    f.write('\n')
-                    f.write(self.calculator_command)
-                    f.write('\n')
-                    f.write('\n')
-                    f.write(f'cp {write_vasp_output_script_path} .\n')
-                    f.write(self.environment_activate)
-                    f.write('\n')
-                    f.write(f'python {write_vasp_output_script_name}\n')
-                    f.write('\n')
-                    f.write(self.environment_deactivate)
+                # # write_magmoms_script_name = 'get_magmoms_vasp.py'
+                # # write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
+                # with open(f'{state_dir}/jobscript','w') as f:
+                #     f.write(self.jobheader)
+                #     f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
+                #     f.write('\n')
+                #     f.write('\n')
+                #     f.write(f'cd {workdir}\n')
+                #     f.write('\n')
+                #     f.write(f'cp {self.write_magmoms_script_path} .\n')
+                #     f.write(self.environment_activate)
+                #     f.write('\n')
+                #     f.write(f'python {self.write_magmoms_script_name}\n')
+                #     f.write('\n')
+                #     f.write(self.environment_deactivate)
+                #     f.write('\n')
+                #     f.write(self.calculator_command)
+                #     f.write('\n')
+                #     f.write('\n')
+                #     # write output information only in the case of 2_coll run
+                #     if self.mode == 'singlepoint':
+                #         f.write(f'cp {self.write_vasp_output_script_path} .\n')
+                #         f.write(self.environment_activate)
+                #         f.write('\n')
+                #         f.write(f'python {self.write_vasp_output_script_name}\n')
+                #         f.write('\n')
+                #         f.write(self.environment_deactivate)
+                pass
 
 
         elif innermode == 'singlepoint+recalc':
@@ -375,40 +430,59 @@ class SubmitManual(object):
 
             calc_recalc.write_input(self.atoms)
 
-
-
-            os.system(f'cp {write_magmoms_script_path} {workdir_recalc}')
-            os.system(f'cp {write_vasp_output_script_path} {workdir_recalc}')
-
-
             self.write_initial_magmoms(f'{workdir_singlepoint}/initial_magmoms.txt')
-            with open(f'{state_dir}/jobscript','w') as f:
-                f.write(self.jobheader)
-                f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
-                f.write('\n')
-                f.write('\n')
-                f.write(f'cd {workdir_singlepoint}\n')
-                f.write('\n')
-                f.write(self.calculator_command)
-                f.write('\n')
-                f.write(f'cd {workdir_recalc}\n')
-                f.write('\n')
-                f.write(f'cp {write_magmoms_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                f.write(f'python {write_magmoms_script_name}\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
-                f.write('\n')
-                f.write(self.calculator_command)
-                f.write('\n')
-                f.write(f'cp {write_vasp_output_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                f.write(f'python {write_vasp_output_script_name}\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
+
+
+        elif innermode == 'nsc' or innermode == 'sc':
+
+            workdir =  os.path.join(state_dir, innermode)
+
+            try:
+                os.mkdir(workdir)
+            except:
+                pass
+
+            atom_ucalc = Element(self.atom_ucalc)
+            elem_list_sorted, indices = np.unique(self.atoms.get_chemical_symbols(), return_index=True)
+            elem_list = elem_list_sorted[np.argsort(indices)]
+
+            params['ldaul'] = []
+            params['ldauu'] = []
+            params['ldauj'] = []
+            for atom in elem_list:
+                if atom == self.dummy_atom:
+                    if atom_ucalc.is_transition_metal:
+                        params['ldaul'].append(2)
+                    elif atom_ucalc.is_lanthanoid or atom_ucalc.is_actinoid:
+                        params['ldaul'].append(3)
+                    else:
+                        raise ValueError(f"Cannot calculate U for the element {self.atom_ucalc}")
+
+                    params['ldauu'].append(pert_value)
+                    params['ldauj'].append(pert_value)
+                else:
+                    params['ldaul'].append(-1)
+                    params['ldauu'].append(0)
+                    params['ldauj'].append(0)
+
+            params['ldau'] = True
+            params['ldautype'] = 3
+
+            if innermode == 'nsc':
+                params['icharg'] = 11
+            elif  innermode == 'sc':
+                params['icharg'] = 0
+
+            # creating ase.calculator object and writing input   
+            calc = Vasp(atoms=self.atoms,
+                        directory=workdir,
+                        **params)
+
+            calc.write_input(self.atoms)
+
         return
+
+
 
     def write_initial_magmoms(self,path_to_file):
 

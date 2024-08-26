@@ -11,9 +11,22 @@ Script which computes the coupling constants between magnetic atoms.
 # default values for some input variables
 calculator = 'vasp'
 
-from input import *
+import os,sys
 
-import os
+cwd = os.getcwd()
+
+try:
+    input_file = sys.argv[1]
+    print(f'Using the {input_file} file as input')
+    try:
+        exec(f'from {input_file.split('.')[0]} import *')
+    except:
+        from input import *
+except IndexError:
+    print(f'Using the input.py file from folder: {cwd}')
+    from input import *
+
+
 import json
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,8 +35,23 @@ import matplotlib.ticker as ticker
 from pymatgen.core.structure import Structure
 
 # full path to poscar file
-path_to_poscar = '../geometries/' + poscar_file 
-input_structure = Structure.from_file(poscar_file)
+rel_path_to_poscar = '/geometries/' + poscar_file
+path_to_automag = os.environ.get('AUTOMAG_PATH')
+path_to_poscar = path_to_automag + rel_path_to_poscar
+input_structure = Structure.from_file(path_to_poscar)
+
+formula = input_structure.formula.replace(' ','')
+path_to_automag = os.environ.get('AUTOMAG_PATH')
+# path to the folder with results from collinear calculations
+path_to_coll = path_to_automag + '/2_coll/' + f'{formula}/{formula}_{calculator}/'
+if not os.path.isdir(path_to_coll):
+    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
+    if not os.path.isdir(path_to_coll):
+        path_to_coll = path_to_automag + '/2_coll/'
+
+print(f'Path to the results from collinear calculations: {path_to_coll}')
+
+
 
 # initialize variables
 structure = None
@@ -31,24 +59,24 @@ states = None
 energies = None
 
 # read input files from previous step
-for item in os.listdir(f'../2_coll/{}'):
-    rel_path = os.path.join('../2_coll', item)
+for item in os.listdir(path_to_coll):
+    rel_path = os.path.join(path_to_coll, item)
     if os.path.isfile(rel_path):
-        if item.startswith('setting') and item.endswith('.vasp'):
+        if item.startswith(f'{formula}_{calculator}_setting') and item.endswith('.vasp'):
             structure = Structure.from_file(rel_path)
-        if item.startswith('states') and item.endswith('.txt'):
+        if item.startswith(f'{formula}_{calculator}_states') and item.endswith('.txt'):
             with open(rel_path, 'rt') as f:
                 states = json.load(f)
-        if item.startswith('energies') and item.endswith('.txt'):
+        if item.startswith(f'{formula}_{calculator}_energies') and item.endswith('.txt'):
             with open(rel_path, 'rt') as f:
                 energies = json.load(f)
 
 if structure is None:
-    raise IOError('No setting file found in ../2_coll folder.')
+    raise IOError(f'No setting file found in {path_to_coll} folder.')
 if states is None:
-    raise IOError('No states file found in ../2_coll folder.')
+    raise IOError(f'No states file found in {path_to_coll} folder.')
 if energies is None:
-    raise IOError('No energies file found in ../2_coll folder.')
+    raise IOError(f'No energies file found in {path_to_coll} folder.')
 
 # find out which atoms are magnetic
 for element in structure.composition.elements:
@@ -127,7 +155,9 @@ if np.linalg.matrix_rank(A) == len(unique_distances) + 1:
     print(f'counts: {counts.tolist()}')
     print(f'coupling constants: {np.array2string(coupling_constants, precision=8, separator=", ")}')
 
+    print(f'append_coupling_constants = {append_coupling_constants}')
     if append_coupling_constants:
+        print('Appending coupling constants into input.py')
         with open('input.py', 'a') as f:
             f.write('\n# LINE ADDED BY THE SCRIPT 1_coupling_constants.py')
             f.write(f'\ndistances_between_neighbors = {unique_distances.tolist()}\n')
