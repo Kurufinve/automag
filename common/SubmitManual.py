@@ -98,8 +98,25 @@ class SubmitManual(object):
             self.atoms = read(self.poscar_file)
             calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
             compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
-            convergence_dir = os.path.join(compound_dir, f'{self.calculator}/convergence')
+            
+            # creating compound_dir if it does not exist
+            try:
+                os.mkdir(compound_dir)
+            except:
+                pass
 
+            calculator_dir = os.path.join(compound_dir, f'{self.calculator}')
+
+            # creating calculator_dir if it does not exist
+            try:
+                os.mkdir(calculator_dir)
+            except:
+                pass
+
+
+            convergence_dir = os.path.join(calculator_dir, 'convergence')
+
+            # creating convergence_dir if it does not exist
             try:
                 os.mkdir(convergence_dir)
             except:

@@ -2,7 +2,7 @@
 mode = 'kgrid'
 
 # name of the poscar file to use in the automag/geometries folder
-poscar_file = 'Fe2O3-alpha_conventional.vasp'
+poscar_file = 'Zr2AlFe3.vasp'
 
 # define the VASP parameters
 params = {
@@ -27,13 +27,13 @@ params = {
 # configuration = 6 * [4.0] + 6 * [-4.0] + 18 * [0.0]
 
 # choose the trial values for ENCUT (default from 500 to 1000 eV at steps of 10 eV)
-#encut_values = range(500, 1050, 50)
+encut_values = range(500, 1050, 50)
 
 # choose the trial values for SIGMA (default from 0.05 to 0.2 eV at steps of 0.05 eV)
 sigma_values = [item / 100 for item in range(5, 25, 5)]
 
 # choose the trial values for R_k (default from 20 to 100 Ang^-1 at steps of 10 Ang^-1)
-kpts_values = range(20, 110, 10)
+kpts_values = range(20, 80, 10)
 
 # specify if use fireworks database for managing calculations or not
 use_fireworks = False
