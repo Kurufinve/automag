@@ -7,7 +7,13 @@ Script which plots results of convergence tests.
 .. codeauthor:: Michele Galasso <m.galasso@yandex.com>
 """
 
-from input import mode, poscar_file
+# default values for some input variables
+use_fireworks = False
+calculator = 'vasp'
+
+# from input import mode, poscar_file
+from input import *
+
 
 import os
 import numpy as np
@@ -19,8 +25,12 @@ from ase.io import read
 plt.rcParams.update({'font.size': 20})
 
 # create an ase atoms object
-path_to_poscar = '../geometries/' + poscar_file
+rel_path_to_poscar = '/geometries/' + poscar_file
+path_to_automag = os.environ.get('AUTOMAG_PATH')
+path_to_poscar = path_to_automag + rel_path_to_poscar
 atoms = read(path_to_poscar)
+
+filename_template = f"{atoms.get_chemical_formula(mode='metal')}_convergence_{calculator}"
 
 # minimum and maximum values on the x axis for plotting, can be omitted
 # XMIN = 250
@@ -45,11 +55,15 @@ def single_plot(X, Y, label=None):
     for x, y in zip(X[:-1], Y[:-1]):
         if abs(y - Y[-1]) < 0.001:
             if mode == 'encut':
-                print(f'ENCUT = {x} eV gives an error of less than 1 meV/atom w. r. t. the most accurate result.')
+                result_string = f"ENCUT = {x} eV gives an error of less than 1 meV/atom w. r. t. the most accurate result at kpts = {params['kpts']} and sigma = {params['sigma']}."
             else:
-                print(f'kpts = {x} eV with {label} gives an error of less than 1 meV/atom w. r. t. '
-                      f'the most accurate result.')
+                result_string = f"kpts = {x} eV with {label} gives an error of less than 1 meV/atom w. r. t. the the most accurate result at ENCUT = {params['encut']}."
+
+            print(result_string)
+            with open(f"{atoms.get_chemical_formula(mode='metal')}_{mode}_convergence_{calculator}.txt",'w') as f:
+                f.write(result_string)
             break
+
 
     # plot
     if label is None:
@@ -64,24 +78,24 @@ plt.figure(figsize=(16, 9))
 # read only lines which do not start with space
 lines = []
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-with open(os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_{mode}.txt"), 'r') as f:
+with open(os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_{mode}_{calculator}.txt"), 'r') as f:
     for line in f:
         if line[0] != ' ':
             lines.append(line)
 
 # extract the results
-params, energies, = [], []
+paramss, energies, = [], []
 for line in lines:
     values = line.split()
-    params.append(values[0].strip(mode))
+    paramss.append(values[0].strip(mode))
     energies.append(values[-1].split('=')[1])
 
 if mode == 'encut':
-    single_plot(params, energies)
+    single_plot(paramss, energies)
 
 elif mode == 'kgrid':
     sigmas, kptss = [], []
-    for param in params:
+    for param in paramss:
         sigma, kpts = param.split('-')
         sigmas.append(sigma)
         kptss.append(kpts)
@@ -103,5 +117,15 @@ else:
     plt.legend()
 
 plt.ylabel('energy (eV/atom)')
-plt.savefig(f'{mode}.png', bbox_inches='tight')
+plt.savefig(f'{mode}_convergence_{calculator}.png', bbox_inches='tight')
 # plt.show()
+
+# moving results into separate folder
+
+try:
+    os.mkdir(f"{filename_template}")
+except:
+    pass
+
+os.system(f'mv *.png {filename_template}')
+os.system(f'mv *.txt {filename_template}')

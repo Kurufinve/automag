@@ -94,9 +94,38 @@ class SubmitManual(object):
     def submit(self):
         params = copy(self.fix_params)
         if self.var_params:
+
+            self.atoms = read(self.poscar_file)
+            calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
+            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
+            convergence_dir = os.path.join(compound_dir, f'{self.calculator}/convergence')
+
+            try:
+                os.mkdir(convergence_dir)
+            except:
+                pass
+
+            if self.mode == 'encut':
+                self.conv_value_dir = os.path.join(convergence_dir, 'encut')
+            elif self.mode == 'kgrid':
+                self.conv_value_dir = os.path.join(convergence_dir, 'kgrid')
+            try:
+                os.mkdir(self.conv_value_dir)
+            except:
+                pass
+
+            # write jobscript
+            with open(f'{self.conv_value_dir}/jobscript','w') as f:
+                f.write(self.jobheader)
+                if '#SBATCH' in self.jobheader:
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.mode} convergence calculation")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.mode}")
+                    f.write("\n")
+
             for values in self.var_params:
                 if len(values) == 1:
                     if self.mode == 'encut':
+
                         params['encut'] = values[0]
                     # else:
                     #     params['ldauu'] = [values[0], 0, 0]
@@ -110,6 +139,7 @@ class SubmitManual(object):
                     raise ValueError('Convergence tests for three parameters simultaneously are not supported.')
 
                 self.write_input(params, name)
+
         else:
             if self.name is not None:
                 self.write_input(params, f'{self.name}')
@@ -120,12 +150,16 @@ class SubmitManual(object):
 
 
         # create an atoms object as a class atribute to make it accesible across the class methods and encode it
-        self.atoms = read(self.poscar_file)
 
         # create working directory for manual submission
-        calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-        compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
-        state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
+        if self.var_params:
+            state_dir = os.path.join(self.conv_value_dir, f'{name}')
+        else:
+            self.atoms = read(self.poscar_file)
+            calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
+            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
+            state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
+
         try:
             os.mkdir(state_dir)
         except:
@@ -195,7 +229,7 @@ class SubmitManual(object):
                     f.write(self.environment_activate)
                     f.write('\n')
                     if self.calculator == "vasp":
-                        f.write(f'python {self.write_output_script_name} vasp\n')
+                        f.write(f'python {self.write_output_script_name} magmoms vasp\n')
                     f.write('\n')
                     f.write(self.environment_deactivate)
 
@@ -313,6 +347,30 @@ class SubmitManual(object):
             # restoring the name of the dummy atom POTCAR
             os.system(f'mv {dummy_atom_pp_path_temp} {dummy_atom_pp_path}')
 
+
+        elif self.mode == 'encut' or self.mode == 'kgrid':
+
+                # write input files
+                if self.calculator == "vasp":
+                    # only single-point run
+                    self.write_vasp_input_files(state_dir,'singlepoint',params)
+
+                # add the lines to the jobscript
+                with open(f'{self.conv_value_dir}/jobscript','a') as f:
+                    f.write(f'cd {state_dir}/singlepoint\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+                    f.write(f'rm WAVECAR CHG\n') # remove large files
+                    f.write(f'cp {self.write_output_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    if self.calculator == "vasp":
+                        f.write(f'python {self.write_output_script_name} energy vasp {self.mode}\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
+                    f.write('\n')
+
+
         else:
             pass
 
@@ -341,12 +399,6 @@ class SubmitManual(object):
             # self.set_magmoms()
             params = self.set_magmoms(params)
 
-        # # if perturbation calculation
-        # if 'pert_step' in self.__dict__.keys():
-        #     # if self.pert_step != None:
-        #     self.set_pert_step()
-
-
 
         if innermode == 'singlepoint' or innermode == 'recalc':
             workdir =  os.path.join(state_dir, innermode)
@@ -355,9 +407,6 @@ class SubmitManual(object):
                 os.mkdir(workdir)
             except:
                 pass
-
-            # os.system(f'cp {write_magmoms_script_path} {workdir}')
-            # os.system(f'cp {write_vasp_output_script_path} {workdir}')
 
             # creating ase.calculator object and writing input   
             calc = Vasp(atoms=self.atoms,
@@ -371,38 +420,6 @@ class SubmitManual(object):
 
                 if self.mode == 'singlepoint':
                     self.write_initial_magmoms(f'{workdir}/initial_magmoms.txt')
-
-
-            elif innermode == 'recalc':
-                # # write_magmoms_script_name = 'get_magmoms_vasp.py'
-                # # write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{write_magmoms_script_name}')
-                # with open(f'{state_dir}/jobscript','w') as f:
-                #     f.write(self.jobheader)
-                #     f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
-                #     f.write('\n')
-                #     f.write('\n')
-                #     f.write(f'cd {workdir}\n')
-                #     f.write('\n')
-                #     f.write(f'cp {self.write_magmoms_script_path} .\n')
-                #     f.write(self.environment_activate)
-                #     f.write('\n')
-                #     f.write(f'python {self.write_magmoms_script_name}\n')
-                #     f.write('\n')
-                #     f.write(self.environment_deactivate)
-                #     f.write('\n')
-                #     f.write(self.calculator_command)
-                #     f.write('\n')
-                #     f.write('\n')
-                #     # write output information only in the case of 2_coll run
-                #     if self.mode == 'singlepoint':
-                #         f.write(f'cp {self.write_vasp_output_script_path} .\n')
-                #         f.write(self.environment_activate)
-                #         f.write('\n')
-                #         f.write(f'python {self.write_vasp_output_script_name}\n')
-                #         f.write('\n')
-                #         f.write(self.environment_deactivate)
-                pass
-
 
         elif innermode == 'singlepoint+recalc':
 

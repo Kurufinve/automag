@@ -10,6 +10,10 @@ Script which submits linear response U calculations.
 # default values for some input variables
 use_fireworks = False
 calculator = 'vasp'
+jobheader = """#!/bin/bash""" 
+calculator_command = "mpirun vasp_std"
+environment_activate = "source .venv/bin/activate"
+environment_deactivate = "source .venv/bin/deactivate"
 
 import os,sys
 

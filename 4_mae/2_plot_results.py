@@ -77,18 +77,14 @@ output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')
 
 
 trials_path = f"trials"
-
-formula_calculator_template = f"{structure.formula.replace(' ','')}_{calculator}"
-
-
 # exit if no trials folder
 if not os.path.isdir(trials_path):
     print (f"No trials folder found. Seeking for trials_{structure.formula.replace(' ','')} folder")
     trials_path = f"trials_{structure.formula.replace(' ','')}"
 
     if not os.path.isdir(trials_path):
-        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {formula_calculator_template}/trials_{structure.formula.replace(' ','')} folder")
-        trials_path = f"{formula_calculator_template}/trials_{structure.formula.replace(' ','')}"
+        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {structure.formula.replace(' ','')}_{calculator}/trials_{structure.formula.replace(' ','')} folder")
+        trials_path = f"{structure.formula.replace(' ','')}_{calculator}/trials_{structure.formula.replace(' ','')}"
 
         if not os.path.isdir(trials_path):
             raise IOError(f"No {structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')} folder found.")
@@ -218,15 +214,15 @@ for state, energy in zip(final_states, final_energies):
         tc_energies.append(energy)
 
 # write states to file
-with open(f"{formula_calculator_template}_states{final_setting:03d}.txt", 'wt') as f:
+with open(f"{structure.formula.replace(' ','')}_{calculator}_states{final_setting:03d}.txt", 'wt') as f:
     json.dump(tc_states, f)
 
 # write energies to file
-with open(f"{formula_calculator_template}_energies{final_setting:03d}.txt", 'wt') as f:
+with open(f"{structure.formula.replace(' ','')}_{calculator}_energies{final_setting:03d}.txt", 'wt') as f:
     json.dump(tc_energies, f)
 
 # copy setting file with geometry
-shutil.copy(f"{trials_path}/setting{final_setting:03d}.vasp", f"./{formula_calculator_template}_setting{final_setting:03d}.vasp")
+shutil.copy(f"{trials_path}/setting{final_setting:03d}.vasp", f"./{structure.formula.replace(' ','')}_{calculator}_setting{final_setting:03d}.vasp")
 
 # extract values for plot
 bar_labels = []
@@ -286,37 +282,25 @@ for i, (X, Y, kept_magmoms_chunk, bar_labels_chunk) in \
     plt.ylim(top=toplim)
 
     # save or show bar chart
-    plt.savefig(f"{formula_calculator_template}_stability{i + 1:02d}.png", bbox_inches='tight')
+    plt.savefig(f"{structure.formula.replace(' ','')}_{calculator}_stability{i + 1:02d}.png", bbox_inches='tight')
     plt.close()
 
 print(f'The most stable configuration is {bar_labels[np.argmin(energies)]}.')
-with open(f'{formula_calculator_template}_most_stable_configuration.txt','w') as f:
-    f.write(bar_labels[np.argmin(energies)])
-
-with open(f'{formula_calculator_template}_configurations_stability_ascending.txt','w') as f:
-    for i in np.argsort(energies):
-        f.write(f'{bar_labels[i]} {energies[i]}\n')
-
-
-
 if np.logical_not(kept_magmoms[np.argmin(energies)]):
     print('WARNING: values of initial and final magnetic moments of the most stable configuration '
           'significantly differ.')
 
-
 # moving files and figures into a separate folder
-os.system(f"mkdir {formula_calculator_template}")
-os.system(f"cp -f input.py {formula_calculator_template}/input_{calculator}.py")
-os.system(f"mv -f {formula_calculator_template}_stability*.png {formula_calculator_template}")
+os.system(f"mkdir {structure.formula.replace(' ','')}_{calculator}")
+os.system(f"cp -f input.py {structure.formula.replace(' ','')}_{calculator}/input_{calculator}.py")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_stability*.png {structure.formula.replace(' ','')}_{calculator}")
 try:
-    os.system(f"mv -f trials_{structure.formula.replace(' ','')} {formula_calculator_template}")
+    os.system(f"mv -f trials_{structure.formula.replace(' ','')} {structure.formula.replace(' ','')}_{calculator}")
 except:
     pass
-os.system(f"mv -f {formula_calculator_template}_setting*.vasp {formula_calculator_template}")
-os.system(f"mv -f {formula_calculator_template}_energies*.txt {formula_calculator_template}")
-os.system(f"mv -f {formula_calculator_template}_states*.txt {formula_calculator_template}")
-os.system(f"mv -f {formula_calculator_template}_most_stable_configuration.txt {formula_calculator_template}")
-os.system(f"mv -f {formula_calculator_template}_configurations_stability_ascending.txt {formula_calculator_template}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_setting*.vasp {structure.formula.replace(' ','')}_{calculator}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_energies*.txt {structure.formula.replace(' ','')}_{calculator}")
+os.system(f"mv -f {structure.formula.replace(' ','')}_{calculator}_states*.txt {structure.formula.replace(' ','')}_{calculator}")
 
 # acrhiving the folder
-os.system(f"tar -zcvf {formula_calculator_template}.tar.gz {formula_calculator_template}")
+os.system(f"tar -zcvf {structure.formula.replace(' ','')}_{calculator}.tar.gz {structure.formula.replace(' ','')}_{calculator}")

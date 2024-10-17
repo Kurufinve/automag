@@ -23,9 +23,19 @@ try:
 except:
     calculator = 'vasp' # default calculator is vasp
 
+try:
+    conv_mode = str(sys.argv[3])
+except:
+    conv_mode = None # default convergence mode is encut
+
 if quantity == 'magmoms':
+    read_energy_convergence = False
     read_enthalpy = True
     read_magmoms = True
+elif quantity == 'energy':
+    read_energy_convergence = True
+    read_magmoms = False
+    read_enthalpy = True
 
 filename = 'singlepoint.txt'
 
@@ -42,7 +52,7 @@ formula = atoms_final.get_chemical_formula(mode='metal')
 cwd = os.getcwd()
 state = cwd.split('/')[-2]
 # calculator = cwd.split('/')[-3]
-calculatro = 'vasp'
+# calculator = 'vasp'
 compound = cwd.split('/')[-4]
 mode = cwd.split('/')[-1]
 try:
@@ -102,12 +112,16 @@ if read_enthalpy:
 else:
     output_line += 'energy={}\n'.format(atoms_final.get_potential_energy() + correction)
 
+
 if read_magmoms:
-    with open('../singlepoint/initial_magmoms.txt','r') as f:
-        lines = f.readlines()
-        print(lines[0])
-        magmoms = np.array([float(i) for i in lines[0].split()])
-    output_line += '          initial_magmoms={}  '.format(np.array2string(magmoms, 10000))
+    try:
+        with open('../singlepoint/initial_magmoms.txt','r') as f:
+            lines = f.readlines()
+            print(lines[0])
+            magmoms = np.array([float(i) for i in lines[0].split()])
+        output_line += '          initial_magmoms={}  '.format(np.array2string(magmoms, 10000))
+    except:
+        pass
 
     try:
         magmoms_final = atoms_final.get_magnetic_moments()
@@ -116,7 +130,13 @@ if read_magmoms:
 
     output_line += 'final_magmoms={}\n'.format(np.array2string(magmoms_final, 10000))
 
-    filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt"
+    # filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt"
+
+if conv_mode == None:
+    if mode == 'singlepoint' or mode == 'recalc':
+        filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt"
+else:
+    filename = f"{atoms_final.get_chemical_formula(mode='metal')}_{conv_mode}_{calculator}.txt"    
 
 with open(os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold', filename), 'a') as f:
     f.write(output_line)
