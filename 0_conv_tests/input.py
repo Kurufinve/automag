@@ -1,5 +1,6 @@
 # choose the desired mode: 'encut' or 'kgrid'
 mode = 'kgrid'
+#mode = 'encut'
 
 # name of the poscar file to use in the automag/geometries folder
 poscar_file = 'Zr2AlFe3.vasp'
@@ -15,8 +16,8 @@ params = {
     'ismear': 1,
     'lcharg': False,
     'lwave': False,
-    #'sigma': 0.1,
-    #'kpts': 30,
+    #'sigma': 0.2,
+    #'kpts': 50,
     'encut': 850,
 }
 

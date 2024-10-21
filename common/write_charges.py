@@ -23,9 +23,18 @@ read_enthalpy = False
 read_magmoms = False
 
 try:
-    calculator = str(sys.argv[1])
+    dummy_position = int(sys.argv[1])
+except:
+    dummy_position = 0 # default calculator is vasp
+    
+print(f'dummy_position is {dummy_position}')
+
+
+try:
+    calculator = str(sys.argv[2])
 except:
     calculator = 'vasp' # default calculator is vasp
+
 
 # filename = 'singlepoint.txt'
 
@@ -61,6 +70,7 @@ for pert_folder in sorted_pert_folders:
         with open(f'{pert_folder}/nsc/POSCAR', 'rt') as f:
             poscar_lines = f.readlines()
 
+        # elements list from POSCAR file where elements are grouped 
         elem_list = poscar_lines[5].split()
 
         # formula = atoms_final.get_chemical_formula(mode='metal')
@@ -73,8 +83,12 @@ for pert_folder in sorted_pert_folders:
         except ValueError:
             num_ions = [int(item) for item in poscar_lines[6].split()]
 
-        dummy_index = 0
-        dummy_atom = elem_list[0]
+        # Create the resulting full elements list (where elements are not grouped) using a list comprehension
+        elem_list_full = [elem for elem, count in zip(elem_list, num_ions) for _ in range(count)]
+
+        dummy_index = dummy_position
+        dummy_atom = elem_list_full[dummy_index]
+
         for elem, amount in zip(elem_list, num_ions):
             if elem == dummy_atom:
                 if amount == 1:
@@ -82,7 +96,8 @@ for pert_folder in sorted_pert_folders:
                 else:
                     raise ValueError('More than one dummy atom in the structure')
             else:
-                dummy_index += amount
+                # dummy_index += amount
+                pass
 
         # get charges
         charges = []

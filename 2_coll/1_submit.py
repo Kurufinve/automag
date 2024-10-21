@@ -15,6 +15,8 @@ jobheader = """#!/bin/bash"""
 calculator_command = "mpirun vasp_std"
 environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
+parallel_over_configurations = True
+
 
 import os,sys
 
@@ -378,5 +380,6 @@ for i, (lattice, frac_coords, confs) in enumerate(zip(lattices, coordinates, con
         else:
             run = SubmitManual(f'setting{i + 1:03d}.vasp', mode='singlepoint', fix_params=params, magmoms=conf,
                                  name=state, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
-                                 environment_activate = environment_activate, environment_deactivate = environment_deactivate)
+                                 environment_activate = environment_activate, environment_deactivate = environment_deactivate, 
+                                 parallel_over_configurations = parallel_over_configurations)
             run.submit()
