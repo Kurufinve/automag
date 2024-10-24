@@ -222,7 +222,7 @@ class SubmitManual(object):
                 f.write(self.environment_activate)
                 f.write('\n')
                 if self.calculator == "vasp":
-                    f.write(f'python {self.write_output_script_name} vasp\n')
+                    f.write(f'python {self.write_output_script_name} magmoms vasp\n')
                 f.write('\n')
                 f.write(self.environment_deactivate)
                 f.write('\n')

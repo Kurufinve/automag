@@ -75,6 +75,7 @@ calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
 # output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_singlepoint.txt")
 output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt")
 
+print(f'Reading energies and mamgoms from file {output_file}')
 
 trials_path = f"trials"
 
@@ -187,8 +188,8 @@ if len(not_found) != 0:
     print(f"The following {len(not_found)} configuration(s) reported an error during energy calculation and will "
           f"not be shown on the graph: {', '.join(not_found)}")
 
-# plt.hist(np.abs(all_final_magmoms), bins=40)
-# plt.savefig('spin_distribution.png')
+plt.hist(np.abs(all_final_magmoms), bins=40)
+plt.savefig('spin_distribution.png')
 
 setting = 1
 final_states = []
