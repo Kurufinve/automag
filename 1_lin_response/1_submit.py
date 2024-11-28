@@ -14,6 +14,7 @@ jobheader = """#!/bin/bash"""
 calculator_command = "mpirun vasp_std"
 environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
+structure_suffix = ""
 
 import os,sys
 

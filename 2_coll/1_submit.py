@@ -130,6 +130,7 @@ def launch_enumlib(count, split):
     os.system('makeStr.py 1 500')
 
     for j in range(501):
+        print(j)
         if os.path.isfile(f'vasp.{j + 1}'):
             conf_poscar = Poscar.from_file(f'vasp.{j + 1}')
         else:

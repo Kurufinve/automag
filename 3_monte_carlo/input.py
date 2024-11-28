@@ -18,3 +18,5 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 
 # name of the calculator with which singlepoint energies were computed
 calculator = 'vasp'
+
+struct_suffix = '_mp-1221736'
