@@ -14,7 +14,7 @@ jobheader = """#!/bin/bash"""
 calculator_command = "mpirun vasp_std"
 environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
-structure_suffix = ""
+struct_suffix = ''
 
 import os,sys
 
@@ -66,11 +66,11 @@ if 'configuration' not in globals():
 
 # submit calculations
 if use_fireworks:
-    run = SubmitFirework(path_to_poscar, mode='perturbations', fix_params=params, pert_values=perturbations,
+    run = SubmitFirework(path_to_poscar,struct_suffix=struct_suffix, mode='perturbations', fix_params=params, pert_values=perturbations,
                          magmoms=configuration, dummy_atom=dummy_atom, dummy_position=dummy_position)
     run.submit()
 else:
-    run = SubmitManual(path_to_poscar, mode='perturbations', fix_params=params, pert_values=perturbations,
+    run = SubmitManual(path_to_poscar, struct_suffix=struct_suffix,mode='perturbations', fix_params=params, pert_values=perturbations,
                        magmoms=configuration, name='perturbations', dummy_atom=dummy_atom, dummy_position=dummy_position, 
                        calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
                        environment_activate = environment_activate, environment_deactivate = environment_deactivate)

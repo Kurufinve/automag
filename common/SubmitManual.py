@@ -21,9 +21,10 @@ from pymatgen.core.periodic_table import Element
 # from common.utilities import atoms_to_encode #, VaspCalculationTask, WriteOutputTask, WriteChargesTask
 
 class SubmitManual(object):
-    def __init__(self, poscar_file: str, mode: str, fix_params: dict, magmoms: list,
+    def __init__(self, poscar_file: str, mode: str, fix_params: dict, magmoms: list, struct_suffix = '', 
                  encut_values: Union[list, range] = None, sigma_values: Union[list, range] = None,
                  kpts_values: Union[list, range] = None, pert_values: Union[list, range] = None,
+                 Nth = None, Nph = None, N_MAE = None, use_symmetries = False,
                  name: str = None, dummy_atom: str = None, dummy_position: int = None, 
                  calculator: str = 'vasp', jobheader: str = '#!/bin/bash', calculator_command: str = None, 
                  environment_activate: str = None, environment_deactivate: str = None, 
@@ -60,6 +61,13 @@ class SubmitManual(object):
             assert dummy_atom is None
             assert dummy_position is None
             self.var_params = []
+        elif mode == 'mae_theta_phi':
+            assert Nth is not None
+            assert Nph is not None
+            self.var_params = []
+        elif mode == 'mae_curve':
+            assert N_MAE is None
+            self.var_params = []
         else:
             raise ValueError(f'Value of mode = {mode} not understood.')
 
@@ -73,9 +81,14 @@ class SubmitManual(object):
         self.fix_params = fix_params
         self.poscar_file = poscar_file
         self.name = name
+        self.struct_suffix = struct_suffix
         self.pert_values = pert_values
         self.dummy_atom = dummy_atom
         self.dummy_position = dummy_position
+        self.Nth = Nth
+        self.Nph = Nph
+        self.N_MAE = N_MAE # number of points on MAE curve (from lowest energy SAXIS to highest energy SAXIS)
+        self.use_symmetries = use_symmetries # if using crystal symmetries for MAE calculations
         self.calculator = calculator
         self.jobheader = jobheader
         self.calculator_command = calculator_command
@@ -98,7 +111,7 @@ class SubmitManual(object):
 
             self.atoms = read(self.poscar_file)
             calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
+            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}")
             
             # creating compound_dir if it does not exist
             try:
@@ -136,8 +149,8 @@ class SubmitManual(object):
             with open(f'{self.conv_value_dir}/jobscript','w') as f:
                 f.write(self.jobheader)
                 if '#SBATCH' in self.jobheader:
-                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.mode} convergence calculation")
-                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.mode}")
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.mode} convergence calculation")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.mode}")
                     f.write("\n")
 
             for values in self.var_params:
@@ -164,8 +177,9 @@ class SubmitManual(object):
             else:
                 self.write_input(params, self.mode)
 
-    def write_input(self, params, name):
+    def write_input(self, params, name, rewrite=False):
 
+        ### TODO: make a check if calculations folders are exist and calculations are finished successfully 
 
         # create an atoms object as a class atribute to make it accesible across the class methods and encode it
 
@@ -175,7 +189,7 @@ class SubmitManual(object):
         else:
             self.atoms = read(self.poscar_file)
             calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}")
+            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}")
             state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
 
         try:
@@ -191,44 +205,9 @@ class SubmitManual(object):
                     # only single-point run
                     self.write_vasp_input_files(state_dir,'singlepoint',params)
 
-
                 # write jobscript
-                if self.parallel_over_configurations:
-                    # writing separate jobscripts for every configuration
-                    f = open(f'{state_dir}/jobscript','w')
-                    f.write(self.jobheader)
-                    if '#SBATCH' in self.jobheader:
-                        print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.name} calculation")
-                        f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")                    
-                else:
-                    # writing one jobscript for all configurations
-                    if os.path.exists(f'{compound_dir}/{self.calculator}/jobscript'):
-                        # open existing jobscript file for appending lines
-                        f = open(f'{compound_dir}/{self.calculator}/jobscript','a')
-                    else:
-                        # create new jobscript file and writing header
-                        f = open(f'{compound_dir}/{self.calculator}/jobscript','w')
-                        f.write(self.jobheader)
-                        f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_2_coll")  
+                self.write_jobscript(jobdir=state_dir,mode='singlepoint')
 
-                f.write('\n')
-                f.write('\n')
-                f.write(f'cd {state_dir}/singlepoint \n')
-                f.write('\n')
-                f.write(self.calculator_command)
-                f.write('\n')
-                f.write(f'rm WAVECAR CHG\n') # remove large files
-                f.write(f'cp {self.write_output_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                if self.calculator == "vasp":
-                    f.write(f'python {self.write_output_script_name} magmoms vasp\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
-                f.write('\n')
-                f.write('\n')
-                f.write('\n')
-                f.close()
             else:
 
                 if self.calculator == "vasp":
@@ -236,76 +215,7 @@ class SubmitManual(object):
                     self.write_vasp_input_files(state_dir,'singlepoint+recalc',params)
 
                 # write jobscript
-                if self.parallel_over_configurations:
-                    # writing separate jobscripts for every configuration
-                    f = open(f'{state_dir}/jobscript','w')
-                    f.write(self.jobheader)
-                    if '#SBATCH' in self.jobheader:
-                        print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.name} calculation")
-                        f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")                    
-                else:
-                    # writing one jobscript for all configurations
-                    if os.path.exists(f'{compound_dir}/{self.calculator}/jobscript'):
-                        # open existing jobscript file for appending lines
-                        f = open(f'{compound_dir}/{self.calculator}/jobscript','a')
-                    else:
-                        # create new jobscript file and writing header
-                        f = open(f'{compound_dir}/{self.calculator}/jobscript','w')
-                        f.write(self.jobheader)
-                        f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_2_coll")                    
-
-                f.write('\n')
-                f.write('\n')
-                f.write(f'cd {state_dir}/singlepoint\n')
-                f.write('\n')
-                f.write(self.calculator_command)
-                f.write('\n')
-                f.write(f'rm WAVECAR CHG\n') # remove large files
-                f.write(f'cd {state_dir}/recalc\n')
-                f.write('\n')
-                f.write(f'cp {self.write_magmoms_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                if self.calculator == "vasp":
-                    f.write(f'python {self.write_magmoms_script_name} vasp\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
-                f.write('\n')
-                f.write(self.calculator_command)
-                f.write('\n')
-                f.write(f'rm WAVECAR CHG\n') # remove large files
-                f.write(f'cp {self.write_output_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                if self.calculator == "vasp":
-                    f.write(f'python {self.write_output_script_name} magmoms vasp\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
-                f.write('\n')
-                f.write('\n')
-                f.write('\n')
-                f.close()
-
-            # write helping script for submitting the calculations through the job system
-            if self.parallel_over_configurations:
-                # appending a line to the submit script 
-                script_name = f'{compound_dir}/{self.calculator}/run_all.sh'
-                if not os.path.exists(script_name):
-                    with open(script_name,'w') as f:
-                        f.write('#!/bin/sh\n')
-                    os.system(f'chmod +x {script_name}')
-                if '#SBATCH' in self.jobheader:
-                    # using slurm scheduler
-                    exec_command = 'sbatch' 
-                elif '#PBS' in self.jobheader:
-                    # using pbs scheduler
-                    exec_command = 'qsub'
-                else:
-                    # using bash command
-                    exec_command = 'bash'
-
-                submit_command = f'cd {state_dir}; {exec_command} jobscript\n'
-                write_submit_script(script_name,submit_command)
+                self.write_jobscript(jobdir=state_dir,mode='singlepoint+recalc')
 
 
         elif self.mode == 'perturbations':
@@ -362,52 +272,8 @@ class SubmitManual(object):
             # write files for common singlepoint calculation for WAVECAR and CHGCAR
             self.write_vasp_input_files(state_dir_pert,'singlepoint',params)
 
-            # start writing common jobscript for singlepoint calculation and calculations for all perturbations
-            with open(f'{state_dir}/jobscript','w') as f:
-                f.write(self.jobheader)
-                if '#SBATCH' in self.jobheader:
-                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}_{self.name} calculations")
-                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}_{self.name}")
-                f.write('\n')
-                f.write('\n')
-                f.write(f'cd {state_dir_pert}/singlepoint\n')
-                f.write('\n')
-                f.write(self.calculator_command)
-                f.write('\n')
-
-            # write files for perturbation calculations at different pert values
-            for perturbation in self.pert_values:
-                print(f'perturbation: {perturbation}')
-                pert_dir = os.path.join(state_dir_pert, f'{perturbation}')
-
-                self.write_vasp_input_files(pert_dir,'nsc',params,pert_value=perturbation)
-                self.write_vasp_input_files(pert_dir,'sc',params,pert_value=perturbation)
-
-                # appending the part to the jobscript
-                with open(f'{state_dir}/jobscript','a') as f:
-                    f.write('\n')
-                    f.write(f'cd {pert_dir}/nsc\n')
-                    f.write(f'cp ../../singlepoint/WAVECAR . \n')
-                    f.write(f'cp ../../singlepoint/CHGCAR . \n')
-                    f.write('\n')
-                    f.write(self.calculator_command)
-                    f.write('\n')
-                    f.write(f'cd {pert_dir}/sc\n')
-                    f.write(f'cp ../../singlepoint/WAVECAR . \n')
-                    f.write('\n')
-                    f.write(self.calculator_command)
-                    f.write('\n')
-
-            # os.system(f'cp {self.write_charges_script_path} {state_dir_pert}')
-            with open(f'{state_dir}/jobscript','a') as f:
-                f.write(f'cd {state_dir}\n')
-                f.write(f'cp {self.write_charges_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                # if self.calculator == "vasp":
-                f.write(f'python {self.write_charges_script_name} {self.dummy_position} {self.calculator}\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
+            # write the jobscript
+            self.write_jobscript(jobdir=state_dir_pert,params=params,mode=self.mode)
 
             # restoring the name of the dummy atom POTCAR
             os.system(f'mv {dummy_atom_pp_path_temp} {dummy_atom_pp_path}')
@@ -420,20 +286,118 @@ class SubmitManual(object):
                     # only single-point run
                     self.write_vasp_input_files(state_dir,'singlepoint',params)
 
-                # add the lines to the jobscript
-                with open(f'{self.conv_value_dir}/jobscript','a') as f:
-                    f.write(f'cd {state_dir}/singlepoint\n')
-                    f.write(self.calculator_command)
-                    f.write('\n')
-                    f.write(f'rm WAVECAR CHG\n') # remove large files
-                    f.write(f'cp {self.write_output_script_path} .\n')
-                    f.write(self.environment_activate)
-                    f.write('\n')
-                    if self.calculator == "vasp":
-                        f.write(f'python {self.write_output_script_name} energy vasp {self.mode}\n')
-                    f.write('\n')
-                    f.write(self.environment_deactivate)
-                    f.write('\n')
+                # write the jobscript
+                self.write_jobscript(jobdir=state_dir,mode=self.mode)
+
+
+        elif self.mode == 'mae_theta_phi':
+
+            ### Finding SAXIS that correspond to the lowest and highest energy
+            # directory with all MAE calculations
+            mae_dir = os.path.join(state_dir, 'mae')
+            try:
+                os.mkdir(mae_dir)
+            except:
+                pass
+
+            # directory with collinear calculation with SAXIS || z
+            z_dir = os.path.join(mae_dir, 'z')
+            try:
+                os.mkdir(mae_dir)
+            except:
+                pass
+
+            if self.calculator == "vasp":
+                chgcar_found = False
+                # checking the WAVECAR and CHGCAR in state_dir
+                if os.path.isfile(f'{state_dir}/recalc/CHGCAR')==True and os.path.isfile(f'{state_dir}/recalc/WAVECAR')==True:
+                    if os.path.getsize(f'{state_dir}/recalc/CHGCAR')>0 and os.path.getsize(f'{state_dir}/recalc/WAVECAR')>0: 
+                        print(f"Collinear CHGCAR and WAVECAR are not found in {state_dir}/recalc directory")
+                        try:
+                            os.mkdir(z_dir)
+                        except:
+                            pass
+                        os.system(f'cp -r {state_dir}/recalc {z_dir}/singlepoint')
+                        chgcar_found = True
+                elif os.path.isfile(f'{state_dir}/singlepoint/CHGCAR')==True and os.path.isfile(f'{state_dir}/singlepoint/WAVECAR')==True:
+                    if os.path.getsize(f'{state_dir}/singlepoint/CHGCAR')>0 and os.path.getsize(f'{state_dir}/singlepoint/WAVECAR')>0: 
+                        print(f"Collinear CHGCAR and WAVECAR are not found in {state_dir}/singlepoint directory")
+                        try:
+                            os.mkdir(z_dir)
+                        except:
+                            pass
+                        os.system(f'cp -r {state_dir}/singlepoint {z_dir}/singlepoint')
+                        chgcar_found = True
+                else:
+                    print(f"Collinear CHGCAR and/or WAVECAR are not found in {state_dir}/recalc nor in {state_dir}/singlepoint directory")
+                    chgcar_found = False
+                    try:
+                        os.mkdir(z_dir)
+                    except:
+                        pass
+
+
+                if chgcar_found == False:
+                    params['lnoncollinear'] = True
+                    params['lsorbit'] = True
+                    params['icharg'] = 2
+                    params['istart'] = 0
+                    params['lcharg'] = True
+                    params['lwave'] = True
+                    # writing input files
+                    self.write_vasp_input_files(z_dir,'singlepoint',params)
+                    # writing the jobscript one single point calculation without recalc
+                    self.write_jobscript(jobdir=z_dir,mode='singlepoint',write_output=False,keep_large_files=True)
+
+
+
+
+            phi = np.linspace(0.0001, 2 * np.pi-0.0001, self.Nph+1)
+            theta = np.linspace(0+0.0001, np.pi-0.00001, self.Nth+1)
+            THETA, PHI = np.meshgrid(theta, phi)
+
+            # ncl_magmom = np.array([(0,0,m) for m in list(self.magmoms)])
+            # self.magmoms = ncl_magmom
+
+            params['voskown'] = 1
+            params['lnoncollinear'] = True
+            params['lsorbit'] = True
+            params['icharg'] = 11
+            params['istart'] = 1
+            params['gga_compat'] = False
+            params['lcharg'] = False
+            params['lwave'] = False
+            # params['magmom'] = ncl_magmom
+            # self.set_magmoms(params)
+            # self.atoms.set_initial_magnetic_moments(ncl_magmom)
+
+
+            for phin, thetan in zip(PHI.flatten(),THETA.flatten()):
+                # creating folder for calculation at fixed Phi and Theta
+                phin_thetan_dir_name = 'PhTh_'+str(np.round((phin/np.pi)*180,2))+'_'+str(np.round((thetan/np.pi)*180,2))
+                phin_thetan_dir = os.path.join(mae_dir, phin_thetan_dir_name)
+                try:
+                    os.mkdir(phin_thetan_dir)
+                except:
+                    pass
+
+                X,Y,Z = RotatingAngles(thetan, phin)
+                params['saxis'] = [np.round(X,3),np.round(Y,3),np.round(Z,3)]
+
+                # write input files
+                if self.calculator == "vasp":
+                    # only single-point run
+                    self.write_vasp_input_files(phin_thetan_dir,'singlepoint',params)
+
+                # jobdir = phin_thetan_dir
+
+                calcname = f'_MAE_{phin_thetan_dir_name}'
+
+                self.write_jobscript(jobdir=phin_thetan_dir,
+                                     jobdir_prev=f'{z_dir}/singlepoint',
+                                     calcname=f'_MAE_{phin_thetan_dir_name}',
+                                     mode='nsc',write_output=False,keep_large_files=True)
+
 
 
         else:
@@ -574,9 +538,228 @@ class SubmitManual(object):
 
         return
 
+
+    def write_jobscript(self,jobdir,jobdir_prev=None,calcname='',params=None,mode='singlepoint',write_output=True,keep_large_files=False):
+
+        """
+
+        jobdir : directory for job
+        jobdir_prev : directory with previous job 
+        calcaname : name of calculation
+        
+        """
+
+        # taking a higher level path to the jobdir
+        job_top_dir = os.path.dirname(jobdir)
+        # job_top_dir = os.path.dirname(os.path.dirname(jobdir))
+
+
+        # writing a jobscript for singlepoint run (used in 2_coll stage)
+        if mode == 'singlepoint' or mode == 'singlepoint+recalc':
+
+            if self.parallel_over_configurations:
+                # writing separate jobscripts for every configuration
+                f = open(f'{jobdir}/jobscript','w')
+                f.write(self.jobheader)
+                if '#SBATCH' in self.jobheader:
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.name} calculation")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.name}")   
+
+
+
+            else:
+                # writing one jobscript for all configurations
+                if os.path.exists(f'{job_top_dir}/jobscript'):
+                    # open existing jobscript file for appending lines
+                    f = open(f'{job_top_dir}/jobscript','a')
+                else:
+                    # create new jobscript file and writing header
+                    f = open(f'{job_top_dir}/jobscript','w')
+                    f.write(self.jobheader)
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{mode}")  
+
+            f.write('\n')
+            f.write('\n')
+            f.write(f'cd {jobdir}/singlepoint \n')
+            f.write('\n')
+            f.write(self.calculator_command)
+            f.write('\n')
+            if not keep_large_files:
+                f.write(f'rm WAVECAR CHG\n') # remove large files
+
+            if mode == 'singlepoint+recalc':
+                # do recalculation with final magnetic moments 
+                f.write(f'cd {jobdir}/recalc\n')
+                f.write('\n')
+                f.write(f'cp {self.write_magmoms_script_path} .\n')
+                f.write(self.environment_activate)
+                f.write('\n')
+                if self.calculator == "vasp":
+                    f.write(f'python {self.write_magmoms_script_name} vasp\n')
+                f.write('\n')
+                f.write(self.environment_deactivate)
+                f.write('\n')
+                f.write(self.calculator_command)
+                f.write('\n')
+            if not keep_large_files:
+                f.write(f'rm WAVECAR CHG\n') # remove large files
+
+            if write_output:
+                f.write(f'cp {self.write_output_script_path} .\n')
+                f.write(self.environment_activate)
+                f.write('\n')
+                if self.calculator == "vasp":
+                    f.write(f'python {self.write_output_script_name} magmoms vasp None {self.struct_suffix}\n')
+                f.write('\n')
+                f.write(self.environment_deactivate)
+                f.write('\n')
+
+            f.write('\n')
+            f.write('\n')
+            f.close()
+
+        elif mode == 'perturbations':
+
+            # start writing common jobscript for singlepoint calculation and calculations for all perturbations
+            with open(f'{job_top_dir}/jobscript','w') as f:
+                f.write(self.jobheader)
+                if '#SBATCH' in self.jobheader:
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{mode}_{self.name} calculations")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{mode}_{self.name}")
+                f.write('\n')
+                f.write('\n')
+                f.write(f'cd {jobdir}/singlepoint\n')
+                f.write('\n')
+                f.write(self.calculator_command)
+                f.write('\n')
+
+            # write files for perturbation calculations at different pert values
+            for perturbation in self.pert_values:
+                print(f'perturbation: {perturbation}')
+                pert_dir = os.path.join(jobdir, f'{perturbation}')
+
+                self.write_vasp_input_files(pert_dir,'nsc',params,pert_value=perturbation)
+                self.write_vasp_input_files(pert_dir,'sc',params,pert_value=perturbation)
+
+                # appending the part to the jobscript
+                with open(f'{job_top_dir}/jobscript','a') as f:
+                    f.write('\n')
+                    f.write(f'cd {pert_dir}/nsc\n')
+                    f.write(f'cp ../../singlepoint/WAVECAR . \n')
+                    f.write(f'cp ../../singlepoint/CHGCAR . \n')
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+                    f.write(f'cd {pert_dir}/sc\n')
+                    f.write(f'cp ../../singlepoint/WAVECAR . \n')
+                    f.write('\n')
+                    f.write(self.calculator_command)
+                    f.write('\n')
+
+            if write_output:
+            # os.system(f'cp {self.write_charges_script_path} {state_dir_pert}')
+                with open(f'{job_top_dir}/jobscript','a') as f:
+                    f.write(f'cd {job_top_dir}\n')
+                    f.write(f'cp {self.write_charges_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    # if self.calculator == "vasp":
+                    f.write(f'python {self.write_charges_script_name} {self.dummy_position} {self.calculator}\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)            
+                    f.write('\n')
+
+        elif mode == 'encut' or mode == 'kgrid':
+            # add the lines to the jobscript
+            with open(f'{self.conv_value_dir}/jobscript','a') as f:
+                f.write(f'cd {jobdir}/singlepoint\n')
+                f.write(self.calculator_command)
+                f.write('\n')
+                f.write(f'rm WAVECAR CHG\n') # remove large files
+                f.write(f'cp {self.write_output_script_path} .\n')
+                f.write(self.environment_activate)
+                f.write('\n')
+                if write_output:
+                    if self.calculator == "vasp":
+                        f.write(f'python {self.write_output_script_name} energy vasp {self.mode} {self.struct_suffix}\n')
+                    f.write('\n')
+                    f.write(self.environment_deactivate)
+                f.write('\n')            
+
+        elif mode == 'nsc':
+
+            # write jobscript
+            if self.parallel_over_configurations:
+                # writing separate jobscripts for every configuration
+                f = open(f'{jobdir}/jobscript','w')
+                f.write(self.jobheader)
+                if '#SBATCH' in self.jobheader:
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.name}{calcname} MAE calculation")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.name}{calcname}")                    
+            else:
+                # writing one jobscript for all configurations
+                if os.path.exists(f'{job_top_dir}/jobscript'):
+                    # open existing jobscript file for appending lines
+                    f = open(f'{job_top_dir}/jobscript','a')
+                else:
+                    # create new jobscript file and writing header
+                    f = open(f'{job_top_dir}/jobscript','w')
+                    f.write(self.jobheader)
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_MAE")  
+
+            f.write('\n')
+            f.write('\n')
+            f.write(f'cd {jobdir}/singlepoint \n')
+            f.write('\n')
+            f.write(f'cp {jobdir_prev}/CHGCAR ./CHGCAR \n')
+            f.write(f'ln -s {jobdir_prev}/WAVECAR ./WAVECAR \n')
+            f.write('\n')
+            f.write(self.calculator_command)
+            f.write('\n')
+            if not keep_large_files:
+                f.write(f'rm WAVECAR CHG\n') # remove large files
+            f.write('\n')
+            f.write('\n')
+            f.write('\n')
+            f.close()
+
+
+
+        # write helping script for submitting the calculations through the job system
+        if self.parallel_over_configurations:
+            # appending a line to the submit script 
+            script_name = f'{job_top_dir}/run_all_{mode}.sh'
+            if not os.path.exists(script_name):
+                with open(script_name,'w') as f1:
+                    f1.write('#!/bin/sh\n')
+                os.system(f'chmod +x {script_name}')
+            if '#SBATCH' in self.jobheader:
+                # using slurm scheduler
+                exec_command = 'sbatch' 
+            elif '#PBS' in self.jobheader:
+                # using pbs scheduler
+                exec_command = 'qsub'
+            else:
+                # using sh command
+                exec_command = 'sh'
+
+            submit_command = f'cd {jobdir}; {exec_command} jobscript\n'
+            write_submit_script(script_name,submit_command)
+
+        return
+
 """ Helping functions """
 
 def write_submit_script(script_name,submit_command):
 
     with open(script_name,'a') as f:
         f.write(submit_command)
+
+
+""" MAE functions """
+
+def RotatingAngles(mytheta, myphi):
+    x= np.sin(mytheta)*np.cos(myphi)
+    y= np.sin(mytheta)*np.sin(myphi)
+    z= np.cos(mytheta)
+    return x,y,z

@@ -10,6 +10,7 @@ Script which plots results of convergence tests.
 # default values for some input variables
 use_fireworks = False
 calculator = 'vasp'
+struct_suffix = ''
 
 # from input import mode, poscar_file
 from input import *
@@ -30,7 +31,7 @@ path_to_automag = os.environ.get('AUTOMAG_PATH')
 path_to_poscar = path_to_automag + rel_path_to_poscar
 atoms = read(path_to_poscar)
 
-filename_template = f"{atoms.get_chemical_formula(mode='metal')}_convergence_{calculator}"
+filename_template = f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}_convergence_{calculator}"
 
 # minimum and maximum values on the x axis for plotting, can be omitted
 # XMIN = 250
@@ -60,7 +61,7 @@ def single_plot(X, Y, label=None):
                 result_string = f"kpts = {x} eV with {label} gives an error of less than 1 meV/atom w. r. t. the the most accurate result at ENCUT = {params['encut']}."
 
             print(result_string)
-            with open(f"{atoms.get_chemical_formula(mode='metal')}_{mode}_convergence_{calculator}.txt",'w') as f:
+            with open(f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}_{mode}_convergence_{calculator}.txt",'w') as f:
                 f.write(result_string)
             break
 
@@ -78,7 +79,7 @@ plt.figure(figsize=(16, 9))
 # read only lines which do not start with space
 lines = []
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-with open(os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_{mode}_{calculator}.txt"), 'r') as f:
+with open(os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}_{mode}_{calculator}.txt"), 'r') as f:
     for line in f:
         if line[0] != ' ':
             lines.append(line)

@@ -13,6 +13,7 @@ jobheader = """#!/bin/bash"""
 calculator_command = "mpirun vasp_std"
 environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
+struct_suffix = ''
 
 import os,sys
 
@@ -63,11 +64,11 @@ if mode == 'encut':
         encut_values = range(500, 1010, 10)
 
     if use_fireworks:
-        convtest = SubmitFirework(path_to_poscar, mode='encut', fix_params=params, magmoms=configuration,
+        convtest = SubmitFirework(path_to_poscar, struct_suffix=struct_suffix, mode='encut', fix_params=params, magmoms=configuration,
                                   encut_values=encut_values)
         convtest.submit()
     else:
-        convtest = SubmitManual(path_to_poscar, mode='encut', fix_params=params, magmoms=configuration,
+        convtest = SubmitManual(path_to_poscar, struct_suffix=struct_suffix, mode='encut', fix_params=params, magmoms=configuration,
                                 encut_values=encut_values,
                                 calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
                                 environment_activate = environment_activate, environment_deactivate = environment_deactivate)                                  
@@ -83,12 +84,12 @@ if mode == 'kgrid':
 
     # submit calculations
     if use_fireworks:
-        convtest = SubmitFirework(path_to_poscar, mode='kgrid', fix_params=params, magmoms=configuration,
+        convtest = SubmitFirework(path_to_poscar, struct_suffix=struct_suffix, mode='kgrid', fix_params=params, magmoms=configuration,
                                   sigma_values=sigma_values, kpts_values=kpts_values)
         convtest.submit()
 
     else:
-        convtest = SubmitManual(path_to_poscar, mode='kgrid', fix_params=params, magmoms=configuration,
+        convtest = SubmitManual(path_to_poscar, struct_suffix=struct_suffix, mode='kgrid', fix_params=params, magmoms=configuration,
                                 sigma_values=sigma_values, kpts_values=kpts_values,
                                 calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
                                 environment_activate = environment_activate, environment_deactivate = environment_deactivate)

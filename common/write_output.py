@@ -24,9 +24,15 @@ except:
     calculator = 'vasp' # default calculator is vasp
 
 try:
-    conv_mode = str(sys.argv[3])
+    calc_mode = str(sys.argv[3])
 except:
-    conv_mode = None # default convergence mode is encut
+    calc_mode = None # default calculation mode is None
+
+try:
+    struct_suffix = str(sys.argv[4]) # structure suffix (e.g. _mp-123)
+except:
+    struct_suffix = '' # default structure suffix is empty
+
 
 if quantity == 'magmoms':
     read_energy_convergence = False
@@ -54,20 +60,20 @@ state = cwd.split('/')[-2]
 # calculator = cwd.split('/')[-3]
 # calculator = 'vasp'
 compound = cwd.split('/')[-4]
-mode = cwd.split('/')[-1]
+calc_type = cwd.split('/')[-1]
 try:
     calcid = re.search(r'\d+', state).group()
 except:
     calcid = 0
 
 # write convergence state
-if mode == 'singlepoint':
+if calc_type == 'singlepoint':
     calc_singlepoint = Vasp(directory=cwd)
     is_singlepoint_converged = calc_singlepoint.read_convergence()
     if is_singlepoint_converged: singlepoint_converged_string = 'convergedconverged'
     elif not is_singlepoint_converged: singlepoint_converged_string = 'NONCONVERGEDNONCONVERGED'
     output_line = f'{state}       {calcid}  singlepoint={singlepoint_converged_string}  {formula}   '
-elif mode == 'recalc':
+elif calc_type == 'recalc':
     calc_singlepoint = Vasp(directory=cwd.replace('recalc','singlepoint'))
     is_singlepoint_converged = calc_singlepoint.read_convergence()
     calc_recalc = Vasp(directory=cwd)
@@ -132,11 +138,11 @@ if read_magmoms:
 
     # filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt"
 
-if conv_mode == None:
-    if mode == 'singlepoint' or mode == 'recalc':
-        filename = f"{atoms_final.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt"
+if calc_mode == None or calc_mode == 'coll':
+    if calc_type == 'singlepoint' or calc_type == 'recalc':
+        filename = f"{atoms_final.get_chemical_formula(mode='metal')}{struct_suffix}_singlepoint_{calculator}.txt"
 else:
-    filename = f"{atoms_final.get_chemical_formula(mode='metal')}_{conv_mode}_{calculator}.txt"    
+    filename = f"{atoms_final.get_chemical_formula(mode='metal')}{struct_suffix}_{calc_mode}_{calculator}.txt"    
 
 with open(os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold', filename), 'a') as f:
     f.write(output_line)

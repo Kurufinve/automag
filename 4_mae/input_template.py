@@ -1,8 +1,31 @@
+# parameters for MAE calculation
+# number of grid points for phi angle rotation (0-360 degrees)
+Nph = 20
+
+# number of grid points for theta angle rotation (0-180 degrees)
+Nth = 10
+
+# nomber of grid points for MAE curve (0-360 degrees)
+N_MAE = 20
+
+""" 
+poscar_file and struct_suffix are needed for
+finding the appropriate structure_folder in ../2_coll   
+The initial structure is readed from file  
+../2_coll/<structure_folder>/trials/setting{setting:03d}.vasp
+"""
 # name of the poscar file to use in the automag/geometries folder
 poscar_file = 'Fe2O3-alpha_conventional.vasp'
 
-# maximum supercell size for generating distinct magnetic configurations
-supercell_size = 1
+# suffix for the structure (arbitrary string for distinguishing structures with the same composition)
+# struct_suffix = '_mp-1221736'
+struct_suffix = ''
+
+# choose the configuration to use for MAE calculation
+configuration = 'afm1'
+
+# try to find primitive cell from the given (super)cell taking into account the magnetic moments  
+standardize_cell = True
 
 # choose the absolute values given to up and down spins
 spin_values = {

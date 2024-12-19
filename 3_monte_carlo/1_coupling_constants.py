@@ -10,6 +10,7 @@ Script which computes the coupling constants between magnetic atoms.
 
 # default values for some input variables
 calculator = 'vasp'
+struct_suffix = ''
 
 import os,sys
 
@@ -44,9 +45,9 @@ input_structure = Structure.from_file(path_to_poscar)
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
 # path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
+path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
 if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
+    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
     if not os.path.isdir(path_to_coll):
         path_to_coll = path_to_automag + '/2_coll/'
 

@@ -16,7 +16,7 @@ calculator_command = "mpirun vasp_std"
 environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
 parallel_over_configurations = True
-
+structure_suffix = ''
 
 import os,sys
 
@@ -217,26 +217,26 @@ for element in structure.composition.elements:
 # print(dir(structure))
 # print(structure.formula.replace(' ',''))
 
-if os.path.exists(f"trials_{structure.formula.replace(' ','')}"):
+if os.path.exists(f"trials_{structure.formula.replace(' ','')}{struct_suffix}"):
     # print('Cannot create a folder named trials: an object with the same name already exists.')
     # exit()
     # time = datetime.now().strftime('%Y-%m-%d%H_%M_%S')
     # print(f'A folder named trials already exists. Moving it to the folder: trials_{structure.formula}_{time}')
     # os.system(f"mv trials trials_{structure.formula}_{time}")
     print(f'A folder named trials already exists. moving it to another folder!')
-    os.system(f"rm -rf trials_{structure.formula.replace(' ','')}_old")
+    os.system(f"rm -rf trials_{structure.formula.replace(' ','')}{struct_suffix}_old")
     try:
-        shutil.move(f"trials_{structure.formula.replace(' ','')}", f"trials_{structure.formula.replace(' ','')}_old")
+        shutil.move(f"trials_{structure.formula.replace(' ','')}", f"trials_{structure.formula.replace(' ','')}{struct_suffix}_old")
     except:
         os.system(f"rm -rf trials_{structure.formula.replace(' ','')}_old")
-        shutil.move(f"trials_{structure.formula.replace(' ','')}", f"trials_{structure.formula.replace(' ','')}_old")
+        shutil.move(f"trials_{structure.formula.replace(' ','')}", f"trials_{structure.formula.replace(' ','')}{struct_suffix}_old")
     # os.system(f"mv trials_{structure.formula.replace(' ','')} trials_{structure.formula.replace(' ','')}_old")
-    os.system(f"rm -rf trials_{structure.formula.replace(' ','')}")
+    os.system(f"rm -rf trials_{structure.formula.replace(' ','')}{struct_suffix}")
 
 
 
-os.mkdir(f"trials_{structure.formula.replace(' ','')}")
-os.chdir(f"trials_{structure.formula.replace(' ','')}")
+os.mkdir(f"trials_{structure.formula.replace(' ','')}{struct_suffix}")
+os.chdir(f"trials_{structure.formula.replace(' ','')}{struct_suffix}")
 
 # geometrical settings and respective lists of magnetic configurations
 lattices = [structure.lattice]
@@ -374,12 +374,12 @@ for i, (lattice, frac_coords, confs) in enumerate(zip(lattices, coordinates, con
             f.write('\n')
 
         if use_fireworks:
-            run = SubmitFirework(f'setting{i + 1:03d}.vasp', mode='singlepoint', fix_params=params, magmoms=conf,
+            run = SubmitFirework(f'setting{i + 1:03d}.vasp', struct_suffix = struct_suffix, mode='singlepoint', fix_params=params, magmoms=conf,
                                  name=state)
             run.submit()
 
         else:
-            run = SubmitManual(f'setting{i + 1:03d}.vasp', mode='singlepoint', fix_params=params, magmoms=conf,
+            run = SubmitManual(f'setting{i + 1:03d}.vasp', struct_suffix = struct_suffix, mode='singlepoint', fix_params=params, magmoms=conf,
                                  name=state, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
                                  environment_activate = environment_activate, environment_deactivate = environment_deactivate, 
                                  parallel_over_configurations = parallel_over_configurations)

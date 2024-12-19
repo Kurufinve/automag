@@ -12,7 +12,8 @@ Script which plots results of magnetic relaxations.
 use_fireworks = True
 calculator = 'vasp'
 create_cc_input = True # if create input.py for coupling constants calculation in 3_monte_carlo folder
-create_mae_input = True # if create input.py for MAE calculation in 4_mae folder
+# create_mae_input = True # if create input.py for MAE calculation in 4_mae folder
+struct_suffix = ''
 
 import os,sys
 
@@ -73,26 +74,26 @@ multiplicities = np.array([len(item) for item in symmetrized_structure.equivalen
 # path to results file with data
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
 # output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal', empirical=True)}_singlepoint.txt")
-output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_singlepoint_{calculator}.txt")
+output_file = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}_singlepoint_{calculator}.txt")
 
 print(f'Reading energies and mamgoms from file {output_file}')
 
 trials_path = f"trials"
 
-formula_calculator_template = f"{structure.formula.replace(' ','')}_{calculator}"
+formula_calculator_template = f"{structure.formula.replace(' ','')}{struct_suffix}_{calculator}"
 
 
 # exit if no trials folder
 if not os.path.isdir(trials_path):
-    print (f"No trials folder found. Seeking for trials_{structure.formula.replace(' ','')} folder")
-    trials_path = f"trials_{structure.formula.replace(' ','')}"
+    print (f"No trials folder found. Seeking for trials_{structure.formula.replace(' ','')}{struct_suffix} folder")
+    trials_path = f"trials_{structure.formula.replace(' ','')}{struct_suffix}"
 
     if not os.path.isdir(trials_path):
-        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {formula_calculator_template}/trials_{structure.formula.replace(' ','')} folder")
-        trials_path = f"{formula_calculator_template}/trials_{structure.formula.replace(' ','')}"
+        print (f"No trials_{structure.formula.replace(' ','')} folder found. Seeking for {formula_calculator_template}/trials_{structure.formula.replace(' ','')}{struct_suffix} folder")
+        trials_path = f"{formula_calculator_template}/trials_{structure.formula.replace(' ','')}{struct_suffix}"
 
         if not os.path.isdir(trials_path):
-            raise IOError(f"No {structure.formula.replace(' ','')}/trials_{structure.formula.replace(' ','')} folder found.")
+            raise IOError(f"No {formula_calculator_template}/trials_{structure.formula.replace(' ','')}{struct_suffix} folder found.")
 
 # read lines
 lines, maginfos, presents = [], [], []

@@ -542,6 +542,8 @@ THETA, PHI = np.meshgrid(theta, phi)
 Nrunning = 0
 phi_run = []
 theta_run = []
+
+### creating the folders with calculations 
 for phin, thetan in zip(PHI.flatten(),THETA.flatten()):
     folder = 'PhTh_'+str(np.round((phin/np.pi)*180,2))+'_'+str(np.round((thetan/np.pi)*180,2))
     Jobe_done = 1
@@ -648,6 +650,7 @@ for phin, thetan in zip(PHI.flatten(),THETA.flatten()):
             #print("StillRun:", StillRun)
 
             
+### running the calculations 
 
             
 checkT = 1
@@ -716,12 +719,12 @@ command+='rm ./PhTh_*/CHGCAR '
 subprocess.call('$('+command+')', shell=True)
 
 
-
+### plotting the results of calculations
 
 
 
 fig = plt.figure()
-fig.suptitle('Enthalpy as a function of $\theta$ for defferent $\phi$ for U='+str(U)+', J='+str(J))
+fig.suptitle('Enthalpy as a function of $\theta$ for different $\phi$ for U='+str(U)+', J='+str(J))
 plt.rcParams['axes.grid'] = True
 plt.xlabel('$\theta$', size=15)
 plt.ylabel('Enthapy $(MJ/m^3)$', size=15)

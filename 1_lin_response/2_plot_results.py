@@ -10,6 +10,7 @@ Script which plots results of linear response U calculation.
 # default values for some input variables
 use_fireworks = False
 calculator = 'vasp'
+struct_suffix = ''
 
 import os,sys
 
@@ -41,14 +42,14 @@ path_to_poscar = path_to_automag + rel_path_to_poscar
 # create ase.Atoms object
 atoms = read(path_to_poscar)
 
-filename_template = f"{atoms.get_chemical_formula(mode='metal')}_Ucalc_{calculator}"
+filename_template = f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}_Ucalc_{calculator}"
 
 
 # increase matplotlib pyplot font size
 plt.rcParams.update({'font.size': 20})
 
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-data = np.loadtxt(os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}_charges_{calculator}.txt"))
+data = np.loadtxt(os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}_charges_{calculator}.txt"))
 
 perturbations = data[:, 0]
 nscf = data[:, 1]
