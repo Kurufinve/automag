@@ -172,7 +172,12 @@ calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
 compound_dir = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}")
 state_dir = os.path.join(compound_dir, f'{calculator}/{configuration}')
 
-mae_dir = os.path.join(state_dir, 'mae')
+U = np.round(float(params['ldauu'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
+J = np.round(float(params['ldauj'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
+encut = params['encut']
+kpts = params['kpts']
+mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}')
+# mae_dir = os.path.join(state_dir, 'mae')
 
 
 phi = np.linspace(0.0001, 2 * np.pi-0.0001, Nph+1)
@@ -182,13 +187,13 @@ theta = np.linspace(0+0.0001, np.pi-0.00001, Nth+1)
 ### plotting the results of calculations
 
 try: 
-    os.mkdir('outputs')
+    os.mkdir(f'outputs_{configuration}')
 except:
     pass
 
 # U = params['ldauu'][params['ldaul'].index(2)]
-U = params['ldauu'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]
-J = 0
+# U = params['ldauu'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]
+# J = 0
 
 fig = plt.figure()
 fig.suptitle(r'Enthalpy as a function of $\theta$ for different $\phi$ for U='+str(U)+', J='+str(J))
@@ -228,16 +233,16 @@ for phin, c in zip(phi, colors):
                     print('job for Phi='+str(np.round(phin,2))+' and theta='+str(np.round(thetan,2))+' is not finished!')
     #print('TOTEN: ', TOTEN)
     # plt.plot(np.array(theta_read)*180.0/np.pi, (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]), '-o',color=c, label=r'$\phi$='+str(np.round(phin,3)))
-    plt.plot(np.array(theta_read)*180.0/np.pi, (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]), '-o',color=c, label=r'$\phi$='+str(np.round(phin*rad2deg))+r'$^{\circ}$')
-    np.save("./outputs/TOTEN_"+str(np.round(phin,3))+".npy", (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]))
-    np.save("./outputs/theta_"+str(np.round(phin,3))+".npy", np.array(theta_read)*180.0/np.pi)
+    plt.plot(np.array(theta_read)*180.0/np.pi, (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]), '-o',color=c, label=r'$\phi$='+str(np.round(phin*180.0/np.pi))+r'$^{\circ}$')
+    np.save(f"./outputs_{configuration}/TOTEN_"+str(np.round(phin,3))+f"_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy", (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]))
+    np.save(f"./outputs_{configuration}/theta_"+str(np.round(phin,3))+f"_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy", np.array(theta_read)*180.0/np.pi)
     #plt.plot(theta, TOTEN)
 plt.legend(prop={'size': 8})
-plt.savefig("./outputs/EvsTheta_curves_U"+str(U)+"_J"+str(J)+".png")
+plt.savefig(f"./outputs_{configuration}/EvsTheta_curves_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.png")
 
 
 
-outputs = open('MAE_theta_phi.txt','w')
+outputs = open(f'MAE_theta_phi_{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.txt','w')
 
 MAE = (max(all_E)-min(all_E))
 K1 = (max(all_E)-min(all_E))
@@ -262,13 +267,13 @@ MAE_x = np.array(min_vec[:])
 if max(abs(np.array(np.cross(min_vec, max_vec))))>0.0001:
     MAE_z = np.array(NormedCross(min_vec, max_vec))
 else:
-    if os.path.isfile('./outputs/MAE_Ran_vec.npy') == False:
+    if os.path.isfile(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy') == False:
         Ran_vec = np.random.rand(3)
         Ran_vec = Ran_vec/np.linalg.norm(Ran_vec)
         MAE_z = np.array(np.cross(min_vec, Ran_vec))/np.linalg.norm(np.cross(min_vec, Ran_vec))
-        np.save('./outputs/MAE_Ran_vec.npy', MAE_z)
-    if os.path.isfile('./outputs/MAE_Ran_vec.npy') == True:
-        MAE_z = np.load('./outputs/MAE_Ran_vec.npy')
+        np.save(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy', MAE_z)
+    if os.path.isfile(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy') == True:
+        MAE_z = np.load(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy')
 MAE_y = np.array(np.cross(MAE_z, MAE_x))/np.linalg.norm(np.cross(MAE_z, MAE_x))
 outputs.write('MAE_x: '+str(list(np.round(MAE_x,3)))+', norm='+str(np.round(np.linalg.norm(MAE_x)))+'\n')
 outputs.write('MAE_z: '+str(list(np.round(MAE_z,3)))+', norm='+str(np.round(np.linalg.norm(MAE_y)))+'\n')

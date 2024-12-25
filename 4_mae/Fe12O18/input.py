@@ -22,8 +22,8 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 struct_suffix = ''
 
 # choose the configuration to use for MAE calculation
-configuration = 'fm1'
-#configuration = 'afm1'
+# configuration = 'fm1'   
+configuration = 'afm1'
 
 # try to find primitive cell from the given (super)cell taking into account the magnetic moments  
 standardize_cell = True
@@ -42,7 +42,7 @@ params = {
     'xc': 'PBE',
     'setups': 'recommended',
     'prec': 'Accurate',
-    'ncore': 4,
+    'ncore': 2,
     'encut': 830,
     'ediff': 1e-6,
     'ismear': 1,
@@ -55,9 +55,10 @@ params = {
     'isym': 0,
     'ldau': True,
     'ldautype': 2,
-    'ldaul': [2, -1, -1],
-    'ldauu': [5.17, 0, 0],
-    'ldauj': [0, 0, 0],
+    'ldaul': [2, -1],
+    # 'ldauu': [5.17, 0],
+    'ldauu': [0, 0],
+    'ldauj': [0, 0],
     'ldauprint': 2,
     'lreal': 'Auto',
 }
@@ -71,8 +72,8 @@ use_fireworks = False
 # if we do not itended to use fireworks we need to specify additional variables
 jobheader = """#!/bin/bash -l
 #SBATCH --nodes=1
-#SBATCH --ntasks=10
-#SBATCH --time=1-00:00:00
+#SBATCH --ntasks=20
+#SBATCH --time=10-00:00:00
 #SBATCH --partition=lenovo
 #SBATCH --output=vasp-%j.out
 #SBATCH --error=vasp-%j.error
