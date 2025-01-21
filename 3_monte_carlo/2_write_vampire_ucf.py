@@ -6,6 +6,11 @@ Script which runs Vampire for Monte Carlo simulation.
 
 .. codeauthor:: Michele Galasso <m.galasso@yandex.com>
 """
+
+# default values for some input variables
+calculator = 'vasp'
+struct_suffix = ''
+
 import os,sys
 
 cwd = os.getcwd()
@@ -35,15 +40,18 @@ input_structure = Structure.from_file(path_to_poscar)
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
 # path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
+# path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
+path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
 if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
+    # path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
+    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
     if not os.path.isdir(path_to_coll):
         path_to_coll = path_to_automag + '/2_coll/'
 
 print(f'Path to the results from collinear calculations: {path_to_coll}')
 
-path_to_trials = path_to_coll + f'trials_{formula}{struct_suffix}/'
+# path_to_trials = path_to_coll + f'trials_{formula}{struct_suffix}/'
+path_to_trials = path_to_coll + f'trials_{formula}/'
 
 setting = 1
 magmom = None

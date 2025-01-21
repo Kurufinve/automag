@@ -1,12 +1,12 @@
 # parameters for MAE calculation
 # number of grid points for phi angle rotation (0-360 degrees)
-Nph = 10
+Nph = 20
 
 # number of grid points for theta angle rotation (0-180 degrees)
-Nth = 5
+Nth = 10
 
 # number of grid points for MAE curve (0-360 degrees)
-N_MAE = 10
+N_MAE = 20
 
 """ 
 poscar_file and struct_suffix are needed for
@@ -22,8 +22,8 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 struct_suffix = ''
 
 # choose the configuration to use for MAE calculation
-# configuration = 'fm1'   
-configuration = 'afm1'
+configuration = 'fm1'   
+# configuration = 'afm1'
 
 # try to find primitive cell from the given (super)cell taking into account the magnetic moments  
 standardize_cell = True
