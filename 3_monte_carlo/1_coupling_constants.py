@@ -46,10 +46,10 @@ formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
 # path to the folder with results from collinear calculations
 # path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
+path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
 if not os.path.isdir(path_to_coll):
     # path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
+    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
     if not os.path.isdir(path_to_coll):
         path_to_coll = path_to_automag + '/2_coll/'
 
@@ -66,12 +66,12 @@ energies = None
 for item in os.listdir(path_to_coll):
     rel_path = os.path.join(path_to_coll, item)
     if os.path.isfile(rel_path):
-        if item.startswith(f'{formula}_{calculator}_setting') and item.endswith('.vasp'):
+        if item.startswith(f'{formula}{struct_suffix}_{calculator}_setting') and item.endswith('.vasp'):
             structure = Structure.from_file(rel_path)
-        if item.startswith(f'{formula}_{calculator}_states') and item.endswith('.txt'):
+        if item.startswith(f'{formula}{struct_suffix}_{calculator}_states') and item.endswith('.txt'):
             with open(rel_path, 'rt') as f:
                 states = json.load(f)
-        if item.startswith(f'{formula}_{calculator}_energies') and item.endswith('.txt'):
+        if item.startswith(f'{formula}{struct_suffix}_{calculator}_energies') and item.endswith('.txt'):
             with open(rel_path, 'rt') as f:
                 energies = json.load(f)
 
