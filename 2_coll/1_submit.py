@@ -16,7 +16,7 @@ calculator_command = "mpirun vasp_std"
 environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
 parallel_over_configurations = True
-structure_suffix = ''
+struct_suffix = ''
 
 import os,sys
 

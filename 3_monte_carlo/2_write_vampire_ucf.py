@@ -10,6 +10,7 @@ Script which runs Vampire for Monte Carlo simulation.
 # default values for some input variables
 calculator = 'vasp'
 struct_suffix = ''
+script_header = '#!/bin/bash'
 
 import os,sys
 
@@ -40,22 +41,22 @@ input_structure = Structure.from_file(path_to_poscar)
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
 # path to the folder with results from collinear calculations
-# path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
 path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
 if not os.path.isdir(path_to_coll):
-    # path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
     path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
     if not os.path.isdir(path_to_coll):
         path_to_coll = path_to_automag + '/2_coll/'
 
 print(f'Path to the results from collinear calculations: {path_to_coll}')
 
-# path_to_trials = path_to_coll + f'trials_{formula}{struct_suffix}/'
-path_to_trials = path_to_coll + f'trials_{formula}/'
+path_to_trials = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/' + f'trials_{formula}{struct_suffix}/'
+if not os.path.exists(path_to_trials):
+    path_to_trials = path_to_coll + f'trials_{formula}{struct_suffix}/'
+print(f'Path to trials: {path_to_trials}')
+
 
 setting = 1
 magmom = None
-# while os.path.isfile(f'../2_coll/trials/configurations{setting:03d}.txt'):
 while os.path.isfile(f'{path_to_trials}/configurations{setting:03d}.txt'):
     with open(f'{path_to_trials}/configurations{setting:03d}.txt', 'rt') as f:
         for line in f:
@@ -88,11 +89,12 @@ for element in structure.composition.elements:
 
 non_magnetic_atoms = [element.symbol for element in structure.composition.elements if not element.is_magnetic]
 structure.remove_species(non_magnetic_atoms)
+print('Magnetic part of the structure')
+print(structure)
 center_indices, point_indices, offset_vectors, distances = structure.get_neighbor_list(cutoff_radius)
 
 # get thresholds for comparing atomic distances
-# thresholds = [(a + b) / 2 for a, b in zip(distances_between_neighbors[:-1], distances_between_neighbors[1:])]
-thresholds = [(a + b) / 2 for a, b in zip(distances[:-1], distances[1:])]
+thresholds = [(a + b) / 2 for a, b in zip(distances_between_neighbors[:-1], distances_between_neighbors[1:])]
 thresholds = [0.0] + thresholds + [100.0]
 
 try:

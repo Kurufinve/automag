@@ -201,7 +201,7 @@ class SubmitManual(object):
             state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
 
         try:
-            os.mkdir(state_dir)
+            os.makedirs(state_dir, exist_ok=True)
         except:
             pass
 
@@ -612,6 +612,7 @@ class SubmitManual(object):
                         directory=workdir,
                         **params)
 
+            os.makedirs(workdir, exist_ok=True)
             calc.write_input(self.atoms)
 
         return

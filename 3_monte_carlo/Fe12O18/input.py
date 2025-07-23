@@ -20,8 +20,17 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 calculator = 'vasp'
 
 # command for running espins
-espins_run_command = 'intel2021/mkl/latest; /home/dpoletaev/soft/ESpinS/mc.x'
+espins_run_command = 'module load intel2021/mkl/latest; export UCX_TLS=ud,sm,self; /home/dpoletaev/soft/ESpinS/mc.x'
 
+# header for script
+script_header = """#!/bin/bash
+#SBATCH -p lenovo
+#SBATCH -t 1-00:00:00 
+#SBATCH -N 1
+#SBATCH -n 2
+#SBATCH -J  espins
+#SBATCH -e  error
+"""
 
 # LINE ADDED BY THE SCRIPT 1_coupling_constants.py
 distances_between_neighbors = [2.898, 2.969, 3.362, 3.703, 3.981]
@@ -29,3 +38,4 @@ distances_between_neighbors = [2.898, 2.969, 3.362, 3.703, 3.981]
 # LINE ADDED BY THE SCRIPT 1_coupling_constants.py
 coupling_constants = [-3.40156121e-22, -3.72027152e-22, -5.33069829e-21, -3.56077373e-21,
  -1.12825138e-21]
+ 
