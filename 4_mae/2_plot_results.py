@@ -247,7 +247,7 @@ outputs = open(f'MAE_theta_phi_{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encu
 MAE = (max(all_E)-min(all_E))
 K1 = (max(all_E)-min(all_E))
 
-for e1, p1,t1 in zip(all_E, all_phi, all_theta):
+for e1, p1, t1 in zip(all_E, all_phi, all_theta):
     if e1==min(all_E):
         phi_min = p1; theta_min = t1
     if e1 == max(all_E):
