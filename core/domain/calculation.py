@@ -28,6 +28,7 @@ class CalculationParameters:
     """
     encut: Optional[float] = None
     sigma: Optional[float] = None
+    ismear: Optional[int] = None
     kpts: Optional[Union[int, float]] = None
     xc: Optional[str] = None
     setups: Optional[Dict[str, str]] = None
@@ -58,6 +59,12 @@ class CalculationParameters:
     saxis: Optional[List[float]] = None
     voskown: Optional[int] = None
     gga_compat: Optional[bool] = None
+    lmaxmix: Optional[int] = None
+    amix: Optional[float] = None
+    bmix: Optional[float] = None
+    amix_mag: Optional[float] = None
+    bmix_mag: Optional[float] = None
+    lasph: Optional[bool] = None
     
     def validate(self) -> bool:
         """
