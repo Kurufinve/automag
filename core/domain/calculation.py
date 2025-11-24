@@ -31,6 +31,17 @@ class CalculationParameters:
     kpts: Optional[Union[int, float]] = None
     xc: Optional[str] = None
     setups: Optional[Dict[str, str]] = None
+    prec: Optional[str] = None
+    algo: Optional[str] = None
+    ediff: Optional[float] = None
+    ediffg: Optional[float] = None
+    nelm: Optional[int] = None
+    ibrion: Optional[int] = None
+    isif: Optional[int] = None
+    nsw: Optional[int] = None
+    lreal: Optional[Union[bool, str]] = None
+    ncore: Optional[int] = None
+    npar: Optional[int] = None
     ldauu: Optional[List[float]] = None
     ldauj: Optional[List[float]] = None
     ldaul: Optional[List[int]] = None
