@@ -165,13 +165,104 @@ def standardize_structure(structure_path: str,
     return output_name, ncl_magmom
 
 
+def generate_submission_script(mae_dir: Path,
+                               calc_dirs: list,
+                               directions: list,
+                               parallel: bool,
+                               jobheader: str,
+                               calculator_command: str,
+                               environment_activate: str,
+                               environment_deactivate: str):
+    """
+    Generate SLURM submission helper script.
+    
+    Args:
+        mae_dir: Base MAE directory
+        calc_dirs: List of calculation directories
+        directions: List of MAE directions
+        parallel: If True, create parallel submission script; if False, sequential
+        jobheader: SLURM job header template
+        calculator_command: Command to run VASP
+        environment_activate: Command to activate environment
+        environment_deactivate: Command to deactivate environment
+    """
+    
+    if parallel:
+        # Create parallel submission script (one click to submit all jobs)
+        script_path = mae_dir / 'submit_mae_grid.sh'
+        
+        with open(script_path, 'w') as f:
+            f.write("#!/bin/bash\n")
+            f.write("# MAE Grid Parallel Submission Script\n")
+            f.write("# This script submits all MAE grid calculations in parallel\n\n")
+            
+            f.write(f"echo 'Submitting {len(calc_dirs)} MAE grid calculations in parallel...'\n\n")
+            
+            for calc_dir, direction in zip(calc_dirs, directions):
+                job_name = f"mae_{direction.name}"
+                rel_dir = calc_dir.relative_to(mae_dir)
+                
+                f.write(f"# Submit {direction.name}\n")
+                f.write(f"cd {calc_dir}\n")
+                f.write(f"cat > job.sh << 'EOF'\n")
+                f.write(jobheader + "\n")
+                f.write(f"#SBATCH -J {job_name}\n")
+                f.write(f"#SBATCH -o {calc_dir}/slurm-%j.out\n")
+                f.write(f"#SBATCH -e {calc_dir}/slurm-%j.err\n\n")
+                f.write(f"{environment_activate}\n")
+                f.write(f"{calculator_command}\n")
+                f.write(f"{environment_deactivate}\n")
+                f.write("EOF\n")
+                f.write("sbatch job.sh\n")
+                f.write(f"cd {mae_dir}\n\n")
+            
+            f.write("echo 'All jobs submitted!'\n")
+            f.write("echo 'Monitor with: squeue -u $USER'\n")
+        
+        script_path.chmod(0o755)
+        print(f"Created parallel submission script: {script_path}")
+    
+    else:
+        # Create sequential submission script
+        script_path = mae_dir / 'submit_mae_grid_sequential.sh'
+        
+        with open(script_path, 'w') as f:
+            f.write("#!/bin/bash\n")
+            f.write("# MAE Grid Sequential Submission Script\n")
+            f.write("# This script runs MAE grid calculations sequentially in a single SLURM job\n\n")
+            
+            f.write(jobheader + "\n")
+            f.write("#SBATCH -J mae_grid_sequential\n")
+            f.write(f"#SBATCH -o {mae_dir}/mae_sequential-%j.out\n")
+            f.write(f"#SBATCH -e {mae_dir}/mae_sequential-%j.err\n\n")
+            
+            f.write(f"{environment_activate}\n\n")
+            
+            for calc_dir, direction in zip(calc_dirs, directions):
+                f.write(f"echo 'Running calculation for {direction.name}...'\n")
+                f.write(f"cd {calc_dir}\n")
+                f.write(f"{calculator_command}\n")
+                f.write("\n")
+                f.write(f"# Check if calculation completed successfully\n")
+                f.write(f"if [ $? -ne 0 ]; then\n")
+                f.write(f"    echo 'ERROR: Calculation failed for {direction.name}'\n")
+                f.write(f"    exit 1\n")
+                f.write(f"fi\n")
+                f.write(f"echo 'Completed {direction.name}'\n\n")
+            
+            f.write(f"{environment_deactivate}\n")
+            f.write("echo 'All MAE grid calculations completed!'\n")
+        
+        script_path.chmod(0o755)
+        print(f"Created sequential submission script: {script_path}")
+
+
 def main():
     """Main execution function following SOLID principles."""
     
     # Get paths
     path_to_automag = os.environ.get('AUTOMAG_PATH')
     path_to_poscar = os.path.join(path_to_automag, 'geometries', poscar_file)
-    calcfold_path = os.path.join(path_to_automag, 'CalcFold')
     
     # Load input structure to get formula
     input_structure = Structure.from_file(path_to_poscar)
@@ -195,61 +286,88 @@ def main():
     # Load standardized structure
     atoms = read(standardized_path)
     
-    # Create base parameters for non-collinear calculations
-    base_params_dict = params.copy()
-    base_params_dict.update({
-        'voskown': 1,
-        'lnoncollinear': True,
-        'lsorbit': True,
-        'gga_compat': False,
-    })
+    # Get U and J values for directory naming
+    ldauu_val = params.get('ldauu', [0.0])
+    ldauj_val = params.get('ldauj', [0.0])
+    U = ldauu_val[next(i for i, x in enumerate(params.get('ldaul', [])) if x > 0)] if params.get('ldaul') else 0.0
+    J = ldauj_val[next(i for i, x in enumerate(params.get('ldaul', [])) if x > 0)] if params.get('ldaul') else 0.0
     
-    base_params = CalculationParameters(**base_params_dict)
-    base_params.validate()
+    # Handle kpts and encut as lists or single values
+    kpts_list = params['kpts'] if isinstance(params['kpts'], list) else [params['kpts']]
+    encut_list = params['encut'] if isinstance(params['encut'], list) else [params['encut']]
     
-    # Create workflow submitter
-    if use_fireworks:
-        print("WARNING: FireWorks mode - MAE calculations with FireWorks not fully tested!")
-        launchpad_file = os.path.join(os.path.expanduser('~'), '.fireworks/my_launchpad.yaml')
-        submitter = WorkflowSubmitterFactory.create_fireworks_submitter(launchpad_file)
-    else:
-        submitter = WorkflowSubmitterFactory.create_manual_submitter(
-            calcfold_path=calcfold_path,
-            jobheader=jobheader,
-            calculator_command=calculator_command,
-            environment_activate=environment_activate,
-            environment_deactivate=environment_deactivate
-        )
-    
-    # Create service
-    service = CalculationService(submitter)
-    
-    # Submit MAE theta-phi grid calculations
-    print(f"\n{'=' * 70}")
-    print(f"SUBMITTING MAE THETA-PHI GRID CALCULATIONS")
-    print(f"Grid size: {Nth} theta points × {Nph} phi points = {(Nth+1)*(Nph+1)} calculations")
-    print(f"{'=' * 70}\n")
-    
-    job_ids = service.submit_mae_theta_phi_grid(
-        atoms=atoms,
-        base_params=base_params,
-        magmoms=ncl_magmoms,
-        n_theta=Nth,
-        n_phi=Nph,
-        reference_dir='z',
-        workflow_name=f'mae_grid_{configuration}'
-    )
-    
-    print(f"✓ Submitted {len(job_ids)} MAE grid calculations")
-    
-    # Note about MAE curve calculations
-    print(f"\n{'=' * 70}")
-    print("MAE CURVE CALCULATION (Post-processing)")
-    print(f"{'=' * 70}")
-    print("After grid calculations complete:")
-    print("1. Run 2_analyze_results.py to find easy/hard axes")
-    print("2. Run 3_submit_mae_curve.py to calculate MAE along rotation path")
-    print(f"{'=' * 70}\n")
+    # Iterate over kpts and encut combinations
+    for kpts_val in kpts_list:
+        for encut_val in encut_list:
+            # Create MAE calculation directory
+            calcfold_path = Path(path_to_automag) / 'CalcFold'
+            mae_base_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
+            mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}"
+            mae_dir.mkdir(parents=True, exist_ok=True)
+            
+            print(f"\nCreating MAE directory: {mae_dir}")
+            
+            # Create base parameters for non-collinear calculations
+            base_params_dict = params.copy()
+            base_params_dict.update({
+                'kpts': kpts_val,
+                'encut': encut_val,
+                'voskown': 1,
+                'lnoncollinear': True,
+                'lsorbit': True,
+                'gga_compat': False,
+            })
+            
+            base_params = CalculationParameters(**base_params_dict)
+            base_params.validate()
+            
+            # Generate MAE directions
+            from core.services.mae_service import MAEDirectionGenerator
+            directions = MAEDirectionGenerator.generate_theta_phi_grid(Nth, Nph)
+            
+            # Create calculation directories and input files
+            calc_dirs = []
+            for direction in directions:
+                calc_dir = mae_dir / direction.name
+                calc_dir.mkdir(parents=True, exist_ok=True)
+                calc_dirs.append(calc_dir)
+                
+                # Copy structure
+                import shutil
+                shutil.copy(standardized_path, calc_dir / 'POSCAR')
+                
+                # Create ASE atoms and write VASP inputs
+                from ase.io import read as ase_read
+                atoms_calc = ase_read(standardized_path)
+                
+                # Set non-collinear magnetic moments
+                magmom_array = np.array(ncl_magmoms).flatten()
+                atoms_calc.set_initial_magnetic_moments(magmom_array)
+                
+                # Prepare VASP parameters
+                params_with_saxis = base_params_dict.copy()
+                params_with_saxis['saxis'] = list(direction.saxis)
+                
+                # For grid calculations after reference, read WAVECAR and CHGCAR
+                if direction != directions[0]:  # Not the first (reference) calculation
+                    params_with_saxis['icharg'] = 11
+                    params_with_saxis['istart'] = 1
+                    params_with_saxis['lcharg'] = False
+                    params_with_saxis['lwave'] = False
+                
+                # Write VASP input files using ASE
+                from ase.calculators.vasp import Vasp
+                calc = Vasp(**params_with_saxis)
+                calc.write_input(atoms_calc, directory=str(calc_dir))
+            
+            # Generate helper submission script
+            generate_submission_script(
+                mae_dir, calc_dirs, directions, parallel_over_configurations,
+                jobheader, calculator_command, environment_activate, environment_deactivate
+            )
+            
+            print(f"✓ Created {len(calc_dirs)} calculation directories in {mae_dir}")
+            print(f"✓ Generated submission script: {mae_dir / 'submit_mae_grid.sh'}")
     
     # Save configuration info
     with open(f'{configuration}_mae_config.txt', 'w') as f:
@@ -258,9 +376,15 @@ def main():
         f.write(f"Formula: {formula}\n")
         f.write(f"Grid size: {Nth}×{Nph}\n")
         f.write(f"NCL magmoms: {ncl_magmoms}\n")
-        f.write(f"Number of jobs: {len(job_ids)}\n")
+        f.write(f"Kpts values: {kpts_list}\n")
+        f.write(f"Encut values: {encut_list}\n")
+        f.write(f"U = {U:.1f}, J = {J:.1f}\n")
     
-    print(f"Configuration saved to: {configuration}_mae_config.txt")
+    print(f"\n✓ Configuration saved to: {configuration}_mae_config.txt")
+    print(f"\n{'=' * 70}")
+    print("To submit calculations, run the generated script:")
+    print(f"  bash <mae_directory>/submit_mae_grid.sh")
+    print(f"{'=' * 70}\n")
 
 
 if __name__ == '__main__':
