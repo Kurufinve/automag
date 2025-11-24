@@ -373,8 +373,8 @@ def main():
                 
                 # Write VASP input files using ASE
                 from ase.calculators.vasp import Vasp
-                calc = Vasp(**params_with_saxis)
-                calc.write_input(atoms_calc, directory=str(calc_dir))
+                calc = Vasp(directory=str(calc_dir), **params_with_saxis)
+                calc.write_input(atoms_calc)
             
             # Generate helper submission script
             generate_submission_script(
