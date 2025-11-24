@@ -131,9 +131,16 @@ def load_configuration_from_collinear(path_to_automag: str,
 
 def standardize_structure(structure_path: str, 
                          magmoms: list,
-                         output_name: str) -> tuple:
+                         output_name: str,
+                         to_primitive: bool = False) -> tuple:
     """
-    Standardize structure to primitive cell.
+    Standardize structure (optionally to primitive cell).
+    
+    Args:
+        structure_path: Path to input structure
+        magmoms: Magnetic moments
+        output_name: Output file name
+        to_primitive: If True, convert to primitive cell (default: False)
     
     Returns:
         Tuple of (standardized_structure_path, ncl_magmoms)
@@ -144,11 +151,17 @@ def standardize_structure(structure_path: str,
     # Add magnetic moments as site property
     pmg_structure.add_site_property("magmom", magmoms)
     
-    # Get primitive cell
-    standardized_structure = pmg_structure.get_primitive_structure(
-        tolerance=0.2,
-        use_site_props=True
-    )
+    if to_primitive:
+        # Get primitive cell
+        standardized_structure = pmg_structure.get_primitive_structure(
+            tolerance=0.2,
+            use_site_props=True
+        )
+        print(f'Converted to primitive cell: {len(pmg_structure)} -> {len(standardized_structure)} atoms')
+    else:
+        # Keep original cell
+        standardized_structure = pmg_structure
+        print(f'Using original cell: {len(standardized_structure)} atoms')
     
     # Save standardized structure
     standardized_structure.to(filename=output_name, fmt='POSCAR')
@@ -160,7 +173,7 @@ def standardize_structure(structure_path: str,
     ncl_magmom = [(0, 0, m) for m in standardized_magmom]
     
     print(f'Standardized structure saved to: {output_name}')
-    print(f'Standardized magmoms (NCL): {ncl_magmom}')
+    print(f'Standardized magmoms (NCL): {len(ncl_magmom)} atoms')
     
     return output_name, ncl_magmom
 
@@ -277,10 +290,11 @@ def main():
         path_to_automag, formula, configuration, struct_suffix, calculator
     )
     
-    # Standardize structure to primitive cell
+    # Standardize structure (use original cell to preserve atom count)
     standardized_file = f'setting{setting:03d}_{configuration}_standardized.vasp'
+    to_primitive = False  # Set to True if you want primitive cell
     standardized_path, ncl_magmoms = standardize_structure(
-        structure_path, final_magmoms, standardized_file
+        structure_path, final_magmoms, standardized_file, to_primitive
     )
     
     # Load standardized structure
@@ -341,13 +355,8 @@ def main():
                 atoms_calc = ase_read(standardized_path)
                 
                 # Set non-collinear magnetic moments
-                # For ASE with non-collinear, we need to flatten the tuples to a 1D array
-                # ncl_magmoms is like [(0, 0, 5.0), (0, 0, 5.0), ...]
-                # We need [0, 0, 5.0, 0, 0, 5.0, ...]
-                magmom_flat = []
-                for mx, my, mz in ncl_magmoms:
-                    magmom_flat.extend([mx, my, mz])
-                atoms_calc.set_initial_magnetic_moments(magmom_flat)
+                magmom_array = np.array(ncl_magmoms).flatten()
+                atoms_calc.set_initial_magnetic_moments(magmom_array)
                 
                 # Prepare VASP parameters
                 params_with_saxis = base_params_dict.copy()
