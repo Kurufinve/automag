@@ -10,6 +10,10 @@ This document explains how to use the refactored submission scripts that follow 
 | `1_lin_response/1_submit.py` | [`1_lin_response/1_submit_refactored.py`](../1_lin_response/1_submit_refactored.py) | Linear response U calculation |
 | `2_coll/1_submit.py` | [`2_coll/1_submit_refactored.py`](../2_coll/1_submit_refactored.py) | Collinear magnetic search |
 | `3_monte_carlo/1_coupling_constants.py` | [`3_monte_carlo/1_submit_refactored.py`](../3_monte_carlo/1_submit_refactored.py) | Coupling constants calculation |
+| `4_mae/MAE.py` | [`4_mae/1_submit_refactored.py`](../4_mae/1_submit_refactored.py) | MAE theta-phi grid submission |
+| `4_mae/2_plot_results.py` | [`4_mae/2_analyze_results_refactored.py`](../4_mae/2_analyze_results_refactored.py) | MAE grid analysis |
+| `4_mae/3_submit.py` | [`4_mae/3_submit_mae_curve_refactored.py`](../4_mae/3_submit_mae_curve_refactored.py) | MAE curve submission |
+| `4_mae/4_plot_results.py` | [`4_mae/4_plot_mae_curve_refactored.py`](../4_mae/4_plot_mae_curve_refactored.py) | MAE curve plotting |
 
 ## 🎯 Key Improvements
 
@@ -143,6 +147,144 @@ cutoff_radius = 6.0
 control_group_size = 0.2
 append_coupling_constants = True
 ```
+
+### 5. MAE (Magnetocrystalline Anisotropy Energy) Calculations
+
+The MAE workflow is split into 4 steps for maximum flexibility and SOLID compliance:
+
+#### Step 1: Submit Theta-Phi Grid
+
+```bash
+cd 4_mae
+python 1_submit_refactored.py
+```
+
+**Key Features:**
+- Loads configuration from collinear calculations
+- Standardizes to primitive cell automatically
+- Converts collinear to non-collinear magnetic moments
+- Submits grid of calculations with different SAXIS directions
+
+**Configuration (input.py):**
+```python
+poscar_file = 'Fe12O18.vasp'
+configuration = 'fm1'  # From collinear search
+
+# MAE grid resolution
+Nph = 20  # Phi points (0 to 2π)
+Nth = 10  # Theta points (0 to π)
+
+params = {
+    'encut': 600,
+    'kpts': 0.08,
+    'voskown': 1,
+    'lnoncollinear': True,
+    'lsorbit': True,
+    # ... other non-collinear parameters
+}
+```
+
+This submits **(Nph+1) × (Nth+1)** non-collinear DFT calculations exploring all magnetization directions.
+
+#### Step 2: Analyze Grid Results
+
+```bash
+python 2_analyze_results_refactored.py
+```
+
+**Key Features:**
+- Uses `MAEAnalyzer` class to find easy/hard axes
+- Calculates MAE energy and per-volume values
+- Generates 3D surface plots
+- Identifies optimal magnetization directions
+
+**Output:**
+- Easy axis and hard axis vectors
+- MAE in eV and MJ/m³
+- Surface plots of energy vs (θ, φ)
+
+#### Step 3: Submit MAE Curve
+
+```bash
+python 3_submit_mae_curve_refactored.py
+```
+
+**Key Features:**
+- Uses easy/hard axes from analysis
+- Generates rotation path from easy to hard axis
+- Submits high-resolution curve calculations
+
+**Configuration (add to input.py):**
+```python
+# From step 2 analysis
+easy_axis = np.array([0.0, 0.0, 1.0])  # Example: z-axis
+hard_axis = np.array([1.0, 0.0, 0.0])  # Example: x-axis
+
+N_MAE = 20  # Number of points along curve
+```
+
+This submits **N_MAE+1** calculations along the rotation path.
+
+#### Step 4: Plot and Analyze MAE Curve
+
+```bash
+python 4_plot_mae_curve_refactored.py
+```
+
+**Key Features:**
+- Plots MAE curve with fitted K₁ and K₂ anisotropy constants
+- Calculates derived magnetic properties:
+  - Magnetization M₀
+  - Maximum energy product (BH)ₘₐₓ
+  - Anisotropy field μ₀Hₐ
+  - Magnetic hardness parameter
+- Generates comprehensive text report
+
+**Output Files:**
+```
+outputs_{configuration}/
+├── MAE_curve_U{U}_J{J}.png          # Plot
+├── MAE_curve_{configuration}_U{U}_J{J}.txt  # Report
+├── K_{kpts}_MAE_alpha_U{U}_J{J}.npy  # Angles
+└── K_{kpts}_MAE_E_U{U}_J{J}.npy      # Energies
+```
+
+**Sample Output:**
+```
+MAE RESULTS
+========================================
+MAE (total):     2.456789 MJ/m³
+MAE (per atom):  0.123456 MJ/m³
+MAE (eV):        0.012345 eV
+
+Fitted parameters:
+K1 = 2.345678 MJ/m³
+K2 = 0.111111 MJ/m³
+
+Magnetic Properties:
+M0 = 45.6789 μB (Bohr magnetons)
+M0 = 1.234 MA/m
+(BH)max = 123.45 kJ/m³
+μ₀Hₐ = 2.34 T
+Hardness = 0.567
+```
+
+**MAE Architecture Highlights:**
+
+The MAE workflow demonstrates excellent SOLID compliance:
+
+- **`MAEDirectionGenerator`**: Generates theta-phi grid and rotation curves (SRP)
+- **`MAEAnalyzer`**: Analyzes results, finds axes, fits curves (SRP)
+- **`MAEResultsLoader`**: Loads OSZICAR/OUTCAR files (SRP)
+- **`MAEPlotter`**: Creates visualizations (SRP)
+- **`CalculationService.submit_mae_theta_phi_grid()`**: Orchestrates grid submission (DIP)
+- **`CalculationService.submit_mae_curve()`**: Orchestrates curve submission (DIP)
+
+Each class has a single, well-defined responsibility, making the code:
+- ✅ Easy to test
+- ✅ Easy to extend (add new MAE analysis methods)
+- ✅ Easy to maintain
+- ✅ Reusable across different projects
 
 ## 🔄 Switching Between FireWorks and Manual Submission
 

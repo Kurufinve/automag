@@ -17,7 +17,8 @@ automag-1/
 │   │   ├── workflow.py                      # Abstract interfaces (OCP, DIP)
 │   │   └── serialization.py                 # Serialization interface (ISP)
 │   ├── services/
-│   │   └── calculation_service.py           # Business orchestration (SRP, DIP)
+│   │   ├── calculation_service.py           # Business orchestration (SRP, DIP)
+│   │   └── mae_service.py                   # MAE-specific services (SRP)
 │   └── factories/
 │       └── workflow_factory.py              # Object creation (OCP, DIP)
 │
@@ -46,6 +47,10 @@ automag-1/
 | Linear Response | `1_lin_response/1_submit.py` | `1_lin_response/1_submit_refactored.py` | ✅ Complete |
 | Collinear Search | `2_coll/1_submit.py` | `2_coll/1_submit_refactored.py` | ✅ Complete |
 | Monte Carlo | `3_monte_carlo/1_coupling_constants.py` | `3_monte_carlo/1_submit_refactored.py` | ✅ Complete |
+| MAE Grid | `4_mae/MAE.py` | `4_mae/1_submit_refactored.py` | ✅ Complete |
+| MAE Analysis | `4_mae/2_plot_results.py` | `4_mae/2_analyze_results_refactored.py` | ✅ Complete |
+| MAE Curve | `4_mae/3_submit.py` | `4_mae/3_submit_mae_curve_refactored.py` | ✅ Complete |
+| MAE Plotting | `4_mae/4_plot_results.py` | `4_mae/4_plot_mae_curve_refactored.py` | ✅ Complete |
 
 ## 🎯 SOLID Principles Implementation
 
@@ -62,6 +67,26 @@ automag-1/
 - `CalculationService` - workflow orchestration only
 - `FireworksWorkflowSubmitter` - FireWorks submission only
 - `VaspInputWriter` - VASP input generation only
+
+**MAE Example (1000+ lines → 5 focused classes):**
+
+Original `4_mae/MAE.py` was a monolithic 1086-line script handling:
+- Direction generation
+- Grid calculations
+- Result loading
+- Analysis and plotting
+- Magnetic property calculations
+
+Refactored into **five single-responsibility classes** (~70 lines each):
+```python
+class MAEDirectionGenerator:     # Generates theta-phi grids and rotation curves
+class MAEAnalyzer:               # Analyzes results, finds easy/hard axes
+class MAEResultsLoader:          # Loads OSZICAR/OUTCAR files
+class MAEPlotter:                # Creates visualizations
+class CalculationService:        # Orchestrates MAE workflow submission
+```
+
+Each class can be **tested, modified, and extended independently**.
 
 ### ✅ Open/Closed Principle (OCP)
 
@@ -140,6 +165,13 @@ python 1_submit_refactored.py
 
 cd 3_monte_carlo
 python 1_submit_refactored.py
+
+# MAE workflow (4 steps)
+cd 4_mae
+python 1_submit_refactored.py              # Step 1: Grid submission
+python 2_analyze_results_refactored.py     # Step 2: Find easy/hard axes
+python 3_submit_mae_curve_refactored.py    # Step 3: Curve submission
+python 4_plot_mae_curve_refactored.py      # Step 4: Plot and analyze
 ```
 
 ### Switch Workflow Systems
