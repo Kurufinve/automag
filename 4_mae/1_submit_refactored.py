@@ -341,8 +341,13 @@ def main():
                 atoms_calc = ase_read(standardized_path)
                 
                 # Set non-collinear magnetic moments
-                magmom_array = np.array(ncl_magmoms).flatten()
-                atoms_calc.set_initial_magnetic_moments(magmom_array)
+                # For ASE with non-collinear, we need to flatten the tuples to a 1D array
+                # ncl_magmoms is like [(0, 0, 5.0), (0, 0, 5.0), ...]
+                # We need [0, 0, 5.0, 0, 0, 5.0, ...]
+                magmom_flat = []
+                for mx, my, mz in ncl_magmoms:
+                    magmom_flat.extend([mx, my, mz])
+                atoms_calc.set_initial_magnetic_moments(magmom_flat)
                 
                 # Prepare VASP parameters
                 params_with_saxis = base_params_dict.copy()
