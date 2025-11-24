@@ -49,6 +49,7 @@ class CalculationParameters:
     ldaul: Optional[List[int]] = None
     ldau: Optional[bool] = None
     ldautype: Optional[int] = None
+    ldauprint: Optional[int] = None
     lorbit: Optional[int] = None
     ispin: Optional[int] = None
     lnoncollinear: Optional[bool] = None
