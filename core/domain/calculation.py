@@ -30,6 +30,7 @@ class CalculationParameters:
     sigma: Optional[float] = None
     kpts: Optional[Union[int, float]] = None
     xc: Optional[str] = None
+    setups: Optional[Dict[str, str]] = None
     ldauu: Optional[List[float]] = None
     ldauj: Optional[List[float]] = None
     ldaul: Optional[List[int]] = None
