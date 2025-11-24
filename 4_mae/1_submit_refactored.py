@@ -354,9 +354,11 @@ def main():
                 from ase.io import read as ase_read
                 atoms_calc = ase_read(standardized_path)
                 
-                # Set non-collinear magnetic moments
-                magmom_array = np.array(ncl_magmoms).flatten()
-                atoms_calc.set_initial_magnetic_moments(magmom_array)
+                # For non-collinear VASP, magnetic moments are set via MAGMOM in INCAR
+                # ASE set_initial_magnetic_moments expects a 1D array with length = n_atoms
+                # For NCL, we set the magnitude, and SAXIS controls the direction globally
+                magmom_magnitudes = [np.sqrt(mx**2 + my**2 + mz**2) for mx, my, mz in ncl_magmoms]
+                atoms_calc.set_initial_magnetic_moments(magmom_magnitudes)
                 
                 # Prepare VASP parameters
                 params_with_saxis = base_params_dict.copy()
