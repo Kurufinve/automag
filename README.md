@@ -3,6 +3,26 @@ An automatic workflow software for calculating the ground collinear magnetic
 state of a given structure and for estimating the critical temperature of the
 magnetically ordered to paramagnetic phase transition.
 
+## 🆕 NEW: SOLID-Refactored Architecture Available!
+
+**The project has been refactored following SOLID principles for better maintainability and testability!**
+
+📖 **See the refactoring documentation:**
+- [REFACTORING_SUMMARY.md](REFACTORING_SUMMARY.md) - Quick overview of improvements
+- [REFACTORING_GUIDE.md](REFACTORING_GUIDE.md) - Complete architecture guide
+- [docs/REFACTORED_SCRIPTS_GUIDE.md](docs/REFACTORED_SCRIPTS_GUIDE.md) - How to use refactored scripts
+- [docs/SOLID_QUICK_REFERENCE.md](docs/SOLID_QUICK_REFERENCE.md) - Developer quick reference
+
+**Refactored scripts** (use these for new work):
+- `0_conv_tests/1_submit_refactored.py` - Convergence tests
+- `1_lin_response/1_submit_refactored.py` - Linear response U calculation
+- `2_coll/1_submit_refactored.py` - Collinear magnetic search
+- `3_monte_carlo/1_submit_refactored.py` - Coupling constants calculation
+
+**Benefits:** ✅ Testable ✅ Flexible ✅ Extensible ✅ Documented
+
+---
+
 ## Installation
 Automag is meant to be run on a computing cluster. The first step in the
 installation is to clone the repository
