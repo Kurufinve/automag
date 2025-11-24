@@ -29,6 +29,7 @@ class CalculationParameters:
     encut: Optional[float] = None
     sigma: Optional[float] = None
     kpts: Optional[Union[int, float]] = None
+    xc: Optional[str] = None
     ldauu: Optional[List[float]] = None
     ldauj: Optional[List[float]] = None
     ldaul: Optional[List[int]] = None
