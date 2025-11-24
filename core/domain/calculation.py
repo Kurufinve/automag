@@ -40,6 +40,7 @@ class CalculationParameters:
     ibrion: Optional[int] = None
     isif: Optional[int] = None
     nsw: Optional[int] = None
+    isym: Optional[int] = None
     lreal: Optional[Union[bool, str]] = None
     ncore: Optional[int] = None
     npar: Optional[int] = None
