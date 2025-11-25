@@ -354,17 +354,12 @@ def main():
                 from ase.io import read as ase_read
                 atoms_calc = ase_read(standardized_path)
                 
-                # Prepare VASP parameters
+                # Prepare VASP parameters (without magmom for now)
                 params_with_saxis = base_params_dict.copy()
                 params_with_saxis['saxis'] = list(direction.saxis)
                 
-                # For non-collinear VASP, MAGMOM must be 3*N values (mx, my, mz for each atom)
-                # ncl_magmoms is already in the correct format: [(mx1, my1, mz1), (mx2, my2, mz2), ...]
-                # Flatten it to [mx1, my1, mz1, mx2, my2, mz2, ...]
-                magmom_ncl = []
-                for mx, my, mz in ncl_magmoms:
-                    magmom_ncl.extend([mx, my, mz])
-                params_with_saxis['magmom'] = magmom_ncl
+                # Remove magmom if present (we'll add it manually to INCAR)
+                params_with_saxis.pop('magmom', None)
                 
                 # For grid calculations after reference, read WAVECAR and CHGCAR
                 if direction != directions[0]:  # Not the first (reference) calculation
@@ -373,10 +368,34 @@ def main():
                     params_with_saxis['lcharg'] = False
                     params_with_saxis['lwave'] = False
                 
-                # Write VASP input files using ASE
+                # Write VASP input files using ASE (without NCL magmom)
                 from ase.calculators.vasp import Vasp
                 calc = Vasp(directory=str(calc_dir), **params_with_saxis)
                 calc.write_input(atoms_calc)
+                
+                # Now manually add non-collinear MAGMOM to INCAR
+                incar_path = calc_dir / 'INCAR'
+                with open(incar_path, 'r') as f:
+                    incar_lines = f.readlines()
+                
+                # Find and replace/add MAGMOM line
+                magmom_added = False
+                for i, line in enumerate(incar_lines):
+                    if line.strip().startswith('MAGMOM'):
+                        # Replace existing MAGMOM with NCL format
+                        magmom_str = '  '.join([f'{mx} {my} {mz}' for mx, my, mz in ncl_magmoms])
+                        incar_lines[i] = f'MAGMOM = {magmom_str}\n'
+                        magmom_added = True
+                        break
+                
+                if not magmom_added:
+                    # Add MAGMOM if not present
+                    magmom_str = '  '.join([f'{mx} {my} {mz}' for mx, my, mz in ncl_magmoms])
+                    incar_lines.append(f'MAGMOM = {magmom_str}\n')
+                
+                # Write back the modified INCAR
+                with open(incar_path, 'w') as f:
+                    f.writelines(incar_lines)
             
             # Generate helper submission script
             generate_submission_script(
