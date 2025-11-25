@@ -354,15 +354,17 @@ def main():
                 from ase.io import read as ase_read
                 atoms_calc = ase_read(standardized_path)
                 
-                # For non-collinear VASP, magnetic moments are set via MAGMOM in INCAR
-                # ASE set_initial_magnetic_moments expects a 1D array with length = n_atoms
-                # For NCL, we set the magnitude, and SAXIS controls the direction globally
-                magmom_magnitudes = [np.sqrt(mx**2 + my**2 + mz**2) for mx, my, mz in ncl_magmoms]
-                atoms_calc.set_initial_magnetic_moments(magmom_magnitudes)
-                
                 # Prepare VASP parameters
                 params_with_saxis = base_params_dict.copy()
                 params_with_saxis['saxis'] = list(direction.saxis)
+                
+                # For non-collinear VASP, MAGMOM must be 3*N values (mx, my, mz for each atom)
+                # ncl_magmoms is already in the correct format: [(mx1, my1, mz1), (mx2, my2, mz2), ...]
+                # Flatten it to [mx1, my1, mz1, mx2, my2, mz2, ...]
+                magmom_ncl = []
+                for mx, my, mz in ncl_magmoms:
+                    magmom_ncl.extend([mx, my, mz])
+                params_with_saxis['magmom'] = magmom_ncl
                 
                 # For grid calculations after reference, read WAVECAR and CHGCAR
                 if direction != directions[0]:  # Not the first (reference) calculation
