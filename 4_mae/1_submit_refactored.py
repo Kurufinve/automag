@@ -209,11 +209,39 @@ def generate_submission_script(mae_dir: Path,
             f.write("# MAE Grid Parallel Submission Script\n")
             f.write("# This script submits all MAE grid calculations in parallel\n\n")
             
-            f.write(f"echo 'Submitting {len(calc_dirs)} MAE grid calculations in parallel...'\n\n")
+            f.write("# IMPORTANT: Run reference calculation first!\n")
+            f.write("echo 'Step 1: Submitting reference calculation (z folder)...'\n\n")
+            
+            # Submit reference calculation first
+            z_dir = mae_dir / 'z'
+            f.write(f"cd {z_dir}\n")
+            f.write(f"cat > job.sh << 'EOF'\n")
+            f.write(jobheader + "\n")
+            f.write(f"#SBATCH -J mae_ref_z\n")
+            f.write(f"#SBATCH -o {z_dir}/slurm-%j.out\n")
+            f.write(f"#SBATCH -e {z_dir}/slurm-%j.err\n\n")
+            f.write(f"{environment_activate}\n")
+            f.write(f"{calculator_command}\n")
+            f.write(f"{environment_deactivate}\n")
+            f.write("EOF\n")
+            f.write("REF_JOB=$(sbatch job.sh | awk '{print $4}')\n")
+            f.write("echo \"Reference job submitted: $REF_JOB\"\n")
+            f.write(f"cd {mae_dir}\n\n")
+            
+            f.write(f"echo 'Step 2: Creating symlinks to WAVECAR/CHGCAR from z folder...'\n\n")
+            
+            # Create symlinks in all grid directories
+            for calc_dir in calc_dirs:
+                f.write(f"cd {calc_dir}\n")
+                f.write(f"ln -sf ../z/WAVECAR ./WAVECAR\n")
+                f.write(f"ln -sf ../z/CHGCAR ./CHGCAR\n")
+                f.write(f"cd {mae_dir}\n")
+            
+            f.write(f"\necho 'Step 3: Submitting {len(calc_dirs)} MAE grid calculations...'\n")
+            f.write(f"echo 'Grid calculations will wait for reference job to complete'\n\n")
             
             for calc_dir, direction in zip(calc_dirs, directions):
                 job_name = f"mae_{direction.name}"
-                rel_dir = calc_dir.relative_to(mae_dir)
                 
                 f.write(f"# Submit {direction.name}\n")
                 f.write(f"cd {calc_dir}\n")
@@ -221,7 +249,8 @@ def generate_submission_script(mae_dir: Path,
                 f.write(jobheader + "\n")
                 f.write(f"#SBATCH -J {job_name}\n")
                 f.write(f"#SBATCH -o {calc_dir}/slurm-%j.out\n")
-                f.write(f"#SBATCH -e {calc_dir}/slurm-%j.err\n\n")
+                f.write(f"#SBATCH -e {calc_dir}/slurm-%j.err\n")
+                f.write(f"#SBATCH --dependency=afterok:$REF_JOB\n\n")  # Wait for reference
                 f.write(f"{environment_activate}\n")
                 f.write(f"{calculator_command}\n")
                 f.write(f"{environment_deactivate}\n")
@@ -230,6 +259,7 @@ def generate_submission_script(mae_dir: Path,
                 f.write(f"cd {mae_dir}\n\n")
             
             f.write("echo 'All jobs submitted!'\n")
+            f.write("echo 'Reference job: $REF_JOB'\n")
             f.write("echo 'Monitor with: squeue -u $USER'\n")
         
         script_path.chmod(0o755)
@@ -250,6 +280,29 @@ def generate_submission_script(mae_dir: Path,
             f.write(f"#SBATCH -e {mae_dir}/mae_sequential-%j.err\n\n")
             
             f.write(f"{environment_activate}\n\n")
+            
+            # First run reference calculation
+            z_dir = mae_dir / 'z'
+            f.write(f"echo 'Step 1: Running reference calculation (z folder)...'\n")
+            f.write(f"cd {z_dir}\n")
+            f.write(f"{calculator_command}\n")
+            f.write("\n")
+            f.write(f"if [ $? -ne 0 ]; then\n")
+            f.write(f"    echo 'ERROR: Reference calculation failed in z folder'\n")
+            f.write(f"    exit 1\n")
+            f.write(f"fi\n")
+            f.write(f"echo 'Reference calculation completed'\n\n")
+            
+            # Create symlinks
+            f.write(f"echo 'Step 2: Creating symlinks to WAVECAR/CHGCAR...'\n")
+            for calc_dir in calc_dirs:
+                f.write(f"cd {calc_dir}\n")
+                f.write(f"ln -sf ../z/WAVECAR ./WAVECAR\n")
+                f.write(f"ln -sf ../z/CHGCAR ./CHGCAR\n")
+            f.write("echo 'Symlinks created'\n\n")
+            
+            # Run grid calculations
+            f.write(f"echo 'Step 3: Running {len(calc_dirs)} grid calculations...'\n\n")
             
             for calc_dir, direction in zip(calc_dirs, directions):
                 f.write(f"echo 'Running calculation for {direction.name}...'\n")
@@ -339,6 +392,62 @@ def main():
             from core.services.mae_service import MAEDirectionGenerator
             directions = MAEDirectionGenerator.generate_theta_phi_grid(Nth, Nph)
             
+            # First, create reference calculation (z folder) - self-consistent
+            print(f"\nCreating reference self-consistent calculation in 'z' folder...")
+            z_dir = mae_dir / 'z'
+            z_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy structure to z folder
+            import shutil
+            shutil.copy(standardized_path, z_dir / 'POSCAR')
+            
+            # Create ASE atoms for reference calculation
+            from ase.io import read as ase_read
+            atoms_ref = ase_read(standardized_path)
+            
+            # Reference calculation parameters (self-consistent, no SAXIS rotation yet)
+            params_ref = base_params_dict.copy()
+            params_ref['saxis'] = [0, 0, 1]  # Reference direction (z-axis)
+            params_ref.pop('magmom', None)
+            
+            # Keep default ICHARG for self-consistent calculation
+            params_ref.pop('icharg', None)
+            params_ref.pop('istart', None)
+            
+            # Ensure CHGCAR and WAVECAR are saved
+            params_ref['lcharg'] = True
+            params_ref['lwave'] = True
+            
+            # Write reference calculation input files
+            from ase.calculators.vasp import Vasp
+            calc_ref = Vasp(directory=str(z_dir), **params_ref)
+            calc_ref.write_input(atoms_ref)
+            
+            # Add non-collinear MAGMOM to reference INCAR
+            incar_ref_path = z_dir / 'INCAR'
+            with open(incar_ref_path, 'r') as f:
+                incar_ref_lines = f.readlines()
+            
+            magmom_added = False
+            for i, line in enumerate(incar_ref_lines):
+                if line.strip().startswith('MAGMOM'):
+                    magmom_str = '  '.join([f'{mx} {my} {mz}' for mx, my, mz in ncl_magmoms])
+                    incar_ref_lines[i] = f'MAGMOM = {magmom_str}\n'
+                    magmom_added = True
+                    break
+            
+            if not magmom_added:
+                magmom_str = '  '.join([f'{mx} {my} {mz}' for mx, my, mz in ncl_magmoms])
+                incar_ref_lines.append(f'MAGMOM = {magmom_str}\n')
+            
+            with open(incar_ref_path, 'w') as f:
+                f.writelines(incar_ref_lines)
+            
+            print(f"✓ Created reference calculation in {z_dir}")
+            
+            # Now create grid calculations (non-self-consistent, reading from z)
+            print(f"\nCreating MAE grid calculations (non-self-consistent)...")
+            
             # Create calculation directories and input files
             calc_dirs = []
             for direction in directions:
@@ -361,17 +470,27 @@ def main():
                 # Remove magmom if present (we'll add it manually to INCAR)
                 params_with_saxis.pop('magmom', None)
                 
-                # For grid calculations after reference, read WAVECAR and CHGCAR
-                if direction != directions[0]:  # Not the first (reference) calculation
-                    params_with_saxis['icharg'] = 11
-                    params_with_saxis['istart'] = 1
-                    params_with_saxis['lcharg'] = False
-                    params_with_saxis['lwave'] = False
+                # All grid calculations are non-self-consistent, reading from z folder
+                params_with_saxis['icharg'] = 11  # Read CHGCAR for charge density
+                params_with_saxis['istart'] = 1   # Read WAVECAR for wavefunctions
+                params_with_saxis['lcharg'] = False  # Don't write CHGCAR
+                params_with_saxis['lwave'] = False   # Don't write WAVECAR
                 
                 # Write VASP input files using ASE (without NCL magmom)
                 from ase.calculators.vasp import Vasp
                 calc = Vasp(directory=str(calc_dir), **params_with_saxis)
                 calc.write_input(atoms_calc)
+                
+                # Create symlinks to WAVECAR and CHGCAR from z folder
+                # These will be created after z calculation completes
+                # For now, just note in a README
+                readme_path = calc_dir / 'README.txt'
+                with open(readme_path, 'w') as f:
+                    f.write(f"This calculation reads WAVECAR and CHGCAR from ../z/\n")
+                    f.write(f"Run the reference calculation in ../z/ first!\n")
+                    f.write(f"\nAfter z/ completes, create symlinks:\n")
+                    f.write(f"  ln -s ../z/WAVECAR ./WAVECAR\n")
+                    f.write(f"  ln -s ../z/CHGCAR ./CHGCAR\n")
                 
                 # Now manually add non-collinear MAGMOM to INCAR
                 incar_path = calc_dir / 'INCAR'
@@ -403,8 +522,9 @@ def main():
                 jobheader, calculator_command, environment_activate, environment_deactivate
             )
             
-            print(f"✓ Created {len(calc_dirs)} calculation directories in {mae_dir}")
-            print(f"✓ Generated submission script: {mae_dir / 'submit_mae_grid.sh'}")
+            print(f"✓ Created reference calculation in z/ folder")
+            print(f"✓ Created {len(calc_dirs)} grid calculation directories")
+            print(f"✓ Generated submission script with dependencies")
     
     # Save configuration info
     with open(f'{configuration}_mae_config.txt', 'w') as f:
