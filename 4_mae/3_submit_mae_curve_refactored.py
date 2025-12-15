@@ -257,28 +257,37 @@ def main():
             print("\nPlease run 1_submit_refactored.py first, or define ncl_magmoms manually.")
             return
     
-    # Get U and J values
+    # Get U and J values for directory naming (matching 1_submit_refactored.py exactly)
+    ldauu_val = params.get('ldauu', [0.0])
+    ldauj_val = params.get('ldauj', [0.0])
     ldaul_val = params.get('ldaul', [])
+    
+    # Extract U and J for magnetic atoms (exactly as in 1_submit_refactored.py)
+    U = ldauu_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
+    J = ldauj_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
+    
+    # Handle kpts and encut (matching 1_submit_refactored.py exactly)
     if kpts_val is None:
         kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
     if encut_val is None:
         encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
     
-    # Determine cell_type if not loaded from config
+    # Determine cell_type if not loaded from config (matching 1_submit_refactored.py exactly)
     if cell_type is None:
         # Directly access symmetrize_cell and use_primitive_cell from global namespace
         # These are imported from input.py module, not from params dictionary
-        symmetrize = globals().get('symmetrize_cell', True)
-        use_primitive = globals().get('use_primitive_cell', True)
+        symmetrize_cell = globals().get('symmetrize_cell', True)
+        use_primitive_cell = globals().get('use_primitive_cell', True)
         
-        if not symmetrize:
+        # Determine cell type for folder naming (matching 1_submit_refactored.py logic)
+        if not symmetrize_cell:
             cell_type = 'input_cell'
-        elif use_primitive:
+        elif use_primitive_cell:
             cell_type = 'primitive_cell'
         else:
             cell_type = 'conventional_cell'
         print(f"  → Cell type determined from input.py: {cell_type}")
-        print(f"     (symmetrize_cell={symmetrize}, use_primitive_cell={use_primitive})")
+        print(f"     (symmetrize_cell={symmetrize_cell}, use_primitive_cell={use_primitive_cell})")
     
     # Determine processed formula if not loaded from config
     # Use the actual formula with atom counts, not the reduced formula
@@ -287,11 +296,7 @@ def main():
         processed_formula = pmg_structure.formula.replace(' ', '')
         print(f"  → Processed formula determined from structure: {processed_formula}")
     
-    # Extract U and J for magnetic atoms
-    U = ldauu_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
-    J = ldauj_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
-    
-    # Get atom count for folder naming
+    # Get atom count from processed structure (matching 1_submit_refactored.py exactly)
     n_atoms = len(atoms)
     
     print(f"\nCalculation parameters:")
@@ -311,14 +316,14 @@ def main():
     )
     print(f"  → Generated {len(directions)} directions")
     
-    # Create directory structure
-    # Use processed_formula to match the naming convention from 1_submit_refactored.py
-    # MAE curve directories go in the same base directory as MAE grid calculations
-    # Pattern: CalcFold/{processed_formula}{struct_suffix}/{calculator}/{configuration}/
-    base_calc_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
+    # Create MAE curve calculation directory using EXACT same pattern as 1_submit_refactored.py
+    # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_curve_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
+    calcfold_path = Path(path_to_automag) / 'CalcFold'
+    mae_base_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
+    mae_curve_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    mae_curve_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"\nCreating calculation directories...")
-    print(f"  Base path: {base_calc_dir}")
+    print(f"\nCreating MAE curve directory: {mae_curve_dir}")
     
     # Create calculation directories for each point
     calc_dirs = []
@@ -327,12 +332,12 @@ def main():
     for direction in directions:
         # Name each folder as RtMAE_{angle} where angle is in degrees
         dir_name = f"RtMAE_{direction.angle:.1f}"
-        calc_dir = base_calc_dir / dir_name
+        calc_dir = mae_curve_dir / dir_name
         calc_dir.mkdir(parents=True, exist_ok=True)
         calc_dirs.append(calc_dir)
         direction_names.append(dir_name)
     
-    print(f"  → Created {len(calc_dirs)} RtMAE calculation directories")
+    print(f"  → Created {len(calc_dirs)} RtMAE calculation directories inside mae_curve_dir")
     
     # Prepare base VASP parameters
     vasp_params = params.copy()
@@ -397,9 +402,9 @@ def main():
     print(f"  ✓ All input files created")
     
     # Create symlinks to reference WAVECAR and CHGCAR from MAE grid calculation's z/ folder
-    # Look for the reference 'z' directory from the MAE grid calculation
+    # Look for the reference 'z' directory from the MAE grid calculation (sibling directory)
     # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms/z/
-    mae_grid_dir = base_calc_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
+    mae_grid_dir = mae_base_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
     z_ref_dir = mae_grid_dir / 'z'
     
     print(f"\nCreating symlinks to reference files...")
@@ -443,12 +448,12 @@ def main():
         print(f"  Warning: Reference directory not found: {z_ref_dir}")
         print(f"  → Run MAE grid calculation first (1_submit_refactored.py)")
     
-    # Generate submission scripts in the base calculation directory
+    # Generate submission scripts in the mae_curve_dir (matching 1_submit_refactored.py pattern)
     print(f"\nGenerating submission scripts...")
     
     # Generate both parallel and sequential scripts
     generate_mae_curve_submission_script(
-        mae_curve_dir=base_calc_dir,
+        mae_curve_dir=mae_curve_dir,
         calc_dirs=calc_dirs,
         direction_names=direction_names,
         parallel=True,
@@ -459,7 +464,7 @@ def main():
     )
     
     generate_mae_curve_submission_script(
-        mae_curve_dir=base_calc_dir,
+        mae_curve_dir=mae_curve_dir,
         calc_dirs=calc_dirs,
         direction_names=direction_names,
         parallel=False,
@@ -469,8 +474,8 @@ def main():
         environment_deactivate=environment_deactivate
     )
     
-    # Save configuration file in the base calculation directory
-    config_output_path = base_calc_dir / f'{configuration}_mae_curve_config.txt'
+    # Save configuration file in the mae_curve_dir (matching 1_submit_refactored.py pattern)
+    config_output_path = mae_curve_dir / f'{configuration}_mae_curve_config.txt'
     print(f"\nSaving configuration...")
     with open(config_output_path, 'w') as f:
         f.write(f"MAE Curve Configuration\n")
@@ -490,7 +495,7 @@ def main():
         f.write(f"Cell type: {cell_type}\n")
         f.write(f"Structure file: {structure_path}\n")
         f.write(f"Reference directory: {z_ref_dir if z_ref_dir.exists() else 'Not found'}\n")
-        f.write(f"Directory pattern: RtMAE_{{angle}}\n")
+        f.write(f"Directory pattern: mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/RtMAE_{{angle}}\n")
     
     print(f"  → Saved to: {config_output_path}")
     
@@ -498,17 +503,21 @@ def main():
     print(f"\n{'=' * 70}")
     print(f"MAE CURVE SETUP COMPLETE")
     print(f"{'=' * 70}")
-    print(f"\nCalculation base directory: {base_calc_dir}")
+    print(f"\nMAE curve directory: {mae_curve_dir}")
     print(f"Number of RtMAE calculations: {len(calc_dirs)}")
     print(f"Angle range: 0.0° to {directions[-1].angle:.1f}°")
-    print(f"\nDirectory structure:")
-    print(f"  {base_calc_dir}/")
-    print(f"    ├── RtMAE_0.0/")
-    print(f"    ├── RtMAE_{{angle}}/  (...)")
-    print(f"    ├── RtMAE_{directions[-1].angle:.1f}/")
-    print(f"    └── mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/  (MAE grid reference)")
+    print(f"\nDirectory structure (matching 1_submit_refactored.py):")
+    print(f"  {mae_base_dir}/")
+    print(f"    ├── mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/  (MAE grid reference)")
+    print(f"    │   ├── z/  (reference self-consistent calculation)")
+    print(f"    │   ├── PhTh_*/  (grid calculations)")
+    print(f"    │   └── ...")
+    print(f"    └── mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/")
+    print(f"        ├── RtMAE_0.0/  (easy axis)")
+    print(f"        ├── RtMAE_{{angle}}/  (...)")
+    print(f"        └── RtMAE_{directions[-1].angle:.1f}/  (hard axis)")
     print(f"\nTo submit calculations:")
-    print(f"  cd {base_calc_dir}")
+    print(f"  cd {mae_curve_dir}")
     print(f"  ./submit_mae_curve.sh  # Parallel submission")
     print(f"  # OR")
     print(f"  sbatch submit_mae_curve_sequential.sh  # Sequential in one job")
