@@ -200,7 +200,7 @@ def main():
     
     # Load calculation parameters from config file
     ncl_magmoms = None
-    cell_type = 'unknown_cell'
+    cell_type = None  # Will be determined from config or input params
     ldauu_val = [0.0]
     ldauj_val = [0.0]
     kpts_val = None
@@ -260,15 +260,33 @@ def main():
     if encut_val is None:
         encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
     
+    # Determine cell_type if not loaded from config
+    if cell_type is None:
+        # Fallback to determining from input.py parameters
+        symmetrize = params.get('symmetrize_cell', True)
+        use_primitive = params.get('use_primitive_cell', True)
+        
+        if not symmetrize:
+            cell_type = 'input_cell'
+        elif use_primitive:
+            cell_type = 'primitive_cell'
+        else:
+            cell_type = 'conventional_cell'
+        print(f"  → Cell type determined from input.py: {cell_type}")
+    
     # Extract U and J for magnetic atoms
     U = ldauu_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
     J = ldauj_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
+    
+    # Get atom count for folder naming
+    n_atoms = len(atoms)
     
     print(f"\nCalculation parameters:")
     print(f"  U = {U}, J = {J}")
     print(f"  K-points = {kpts_val}")
     print(f"  ENCUT = {encut_val} eV")
     print(f"  Cell type = {cell_type}")
+    print(f"  Number of atoms = {n_atoms}")
     
     # Generate MAE curve directions
     print(f"\nGenerating MAE curve directions...")
@@ -281,7 +299,7 @@ def main():
     
     # Create directory structure
     formula = pmg_structure.composition.reduced_formula
-    mae_curve_dirname = f'mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}'
+    mae_curve_dirname = f'mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
     
     # Build full path: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/{mae_curve_dir}
     base_calc_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
@@ -374,7 +392,7 @@ def main():
     
     # Create symlinks to reference WAVECAR and CHGCAR from MAE grid calculation
     # Look for the reference 'z' directory from the MAE grid calculation
-    mae_grid_dir = base_calc_dir.parent / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}'
+    mae_grid_dir = base_calc_dir.parent / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
     z_ref_dir = mae_grid_dir / 'z'
     
     print(f"\nCreating symlinks to reference files...")
