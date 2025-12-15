@@ -151,6 +151,7 @@ def main():
     
     # Try to load processed structure to get actual formula if available
     import glob
+    processed_structure = None  # Initialize to None
     processed_files = glob.glob(f'setting*_{configuration}_*.vasp')
     if processed_files:
         try:
@@ -161,8 +162,10 @@ def main():
             if processed_formula != original_formula:
                 print(f"Original formula: {original_formula}")
             formula = processed_formula  # Use processed formula
-        except:
+        except Exception as e:
+            print(f"Warning: Could not load processed structure: {e}")
             formula = original_formula
+            processed_structure = None
     else:
         formula = original_formula
     
@@ -217,7 +220,13 @@ def main():
                 cell_type = 'conventional_cell'
             
             # Get atom count from processed structure if available
-            n_atoms = len(processed_structure) if 'processed_structure' in locals() else len(structure)
+            # Use processed_structure from function scope (defined earlier at line 153)
+            if processed_structure is not None:
+                n_atoms = len(processed_structure)
+                print(f"Using processed structure atom count: {n_atoms}")
+            else:
+                n_atoms = len(structure)
+                print(f"Using original structure atom count: {n_atoms}")
             
             # Construct expected path (matching 1_submit_refactored.py)
             calcfold_path = Path(path_to_automag) / 'CalcFold'
@@ -288,8 +297,8 @@ def main():
                     kpts_val = int(match.group(3))
                     encut_val = int(match.group(4))
                     print(f"Extracted from directory name (legacy): U={U}, J={J}, K={kpts_val}, EN={encut_val}")
-                    # Try to get n_atoms from structure
-                    if 'processed_structure' in locals():
+                    # Try to get n_atoms from processed structure
+                    if processed_structure is not None:
                         n_atoms = len(processed_structure)
                     else:
                         n_atoms = len(structure)
