@@ -164,7 +164,7 @@ def main():
     kpts = params['kpts']
     
     # Determine cell type from input parameters
-    symmetrize = params.get('symmetrize_cell', True)
+    standardize_cell = globals().get('standardize_cell', True)
     use_primitive = params.get('use_primitive_cell', True)
     if not symmetrize:
         cell_type = 'input_cell'

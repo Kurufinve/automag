@@ -274,20 +274,20 @@ def main():
     
     # Determine cell_type if not loaded from config (matching 1_submit_refactored.py exactly)
     if cell_type is None:
-        # Directly access symmetrize_cell and use_primitive_cell from global namespace
+        # Directly access standardize_cell and use_primitive_cell from global namespace
         # These are imported from input.py module, not from params dictionary
-        symmetrize_cell = globals().get('symmetrize_cell', True)
+        standardize_cell = globals().get('standardize_cell', True)
         use_primitive_cell = globals().get('use_primitive_cell', True)
         
         # Determine cell type for folder naming (matching 1_submit_refactored.py logic)
-        if not symmetrize_cell:
+        if not standardize_cell:
             cell_type = 'input_cell'
         elif use_primitive_cell:
             cell_type = 'primitive_cell'
         else:
             cell_type = 'conventional_cell'
         print(f"  → Cell type determined from input.py: {cell_type}")
-        print(f"     (symmetrize_cell={symmetrize_cell}, use_primitive_cell={use_primitive_cell})")
+        print(f"     (standardize_cell={standardize_cell}, use_primitive_cell={use_primitive_cell})")
     
     # Determine processed formula if not loaded from config
     # Use the actual formula with atom counts, not the reduced formula
@@ -320,7 +320,7 @@ def main():
     # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_curve_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
     calcfold_path = Path(path_to_automag) / 'CalcFold'
     mae_base_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
-    mae_curve_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    mae_curve_dir = mae_base_dir / f"mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
     mae_curve_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\nCreating MAE curve directory: {mae_curve_dir}")

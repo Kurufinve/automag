@@ -144,10 +144,27 @@ def main():
     path_to_automag = os.environ.get('AUTOMAG_PATH')
     path_to_poscar = os.path.join(path_to_automag, 'geometries', poscar_file)
     
-    # Load structure
+    # Load structure to get processed formula
     structure = Structure.from_file(path_to_poscar)
-    formula = structure.formula.replace(' ', '')
+    original_formula = structure.formula.replace(' ', '')
     volume = structure.volume
+    
+    # Try to load processed structure to get actual formula if available
+    import glob
+    processed_files = glob.glob(f'setting*_{configuration}_*.vasp')
+    if processed_files:
+        try:
+            processed_structure = Structure.from_file(processed_files[0])
+            processed_formula = processed_structure.formula.replace(' ', '')
+            print(f"Using processed structure: {processed_files[0]}")
+            print(f"Processed formula: {processed_formula}")
+            if processed_formula != original_formula:
+                print(f"Original formula: {original_formula}")
+            formula = processed_formula  # Use processed formula
+        except:
+            formula = original_formula
+    else:
+        formula = original_formula
     
     print(f"\n{'=' * 70}")
     print(f"MAE ANALYSIS FOR {formula} - Configuration: {configuration}")
@@ -163,6 +180,7 @@ def main():
     kpts_val = None
     encut_val = None
     cell_type = 'unknown_cell'
+    n_atoms = len(structure)  # Default to original structure
     
     # Determine the base path for MAE calculations
     # The script can be run from:
@@ -186,20 +204,25 @@ def main():
             kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
             encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
             
-            # Determine cell type from input parameters
-            symmetrize = params.get('symmetrize_cell', True)
-            use_primitive = params.get('use_primitive_cell', True)
-            if not symmetrize:
+            # Determine cell type from input parameters (matching 1_submit_refactored.py)
+            # Access directly from global namespace, not from params dictionary
+            standardize_cell = globals().get('standardize_cell', True)
+            use_primitive_cell = globals().get('use_primitive_cell', True)
+            
+            if not standardize_cell:
                 cell_type = 'input_cell'
-            elif use_primitive:
+            elif use_primitive_cell:
                 cell_type = 'primitive_cell'
             else:
                 cell_type = 'conventional_cell'
             
-            # Construct expected path
+            # Get atom count from processed structure if available
+            n_atoms = len(processed_structure) if 'processed_structure' in locals() else len(structure)
+            
+            # Construct expected path (matching 1_submit_refactored.py)
             calcfold_path = Path(path_to_automag) / 'CalcFold'
             mae_base_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
-            mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}"
+            mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
             
             if mae_dir.exists() and (mae_dir / 'z').exists():
                 base_path = mae_dir
@@ -243,16 +266,33 @@ def main():
                 print(f"Warning: Could not read all parameters from config: {e}")
         
         # If not found in config, try to extract from directory name
-        if kpts_val is None or encut_val is None:
+        if kpts_val is None or encut_val is None or cell_type == 'unknown_cell':
             import re
             dir_name = base_path.name
-            match = re.match(r'mae_U([\d.]+)_J([\d.]+)_K(\d+)_EN(\d+)', dir_name)
+            # Match pattern: mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
+            match = re.match(r'mae_U([\d.]+)_J([\d.]+)_K(\d+)_EN(\d+)_(\w+)_(\d+)atoms', dir_name)
             if match:
                 U = float(match.group(1))
                 J = float(match.group(2))
                 kpts_val = int(match.group(3))
                 encut_val = int(match.group(4))
-                print(f"Extracted from directory name: U={U}, J={J}, K={kpts_val}, EN={encut_val}")
+                cell_type = match.group(5)
+                n_atoms = int(match.group(6))
+                print(f"Extracted from directory name: U={U}, J={J}, K={kpts_val}, EN={encut_val}, cell_type={cell_type}, n_atoms={n_atoms}")
+            else:
+                # Fallback to old pattern without cell_type and n_atoms
+                match = re.match(r'mae_U([\d.]+)_J([\d.]+)_K(\d+)_EN(\d+)', dir_name)
+                if match:
+                    U = float(match.group(1))
+                    J = float(match.group(2))
+                    kpts_val = int(match.group(3))
+                    encut_val = int(match.group(4))
+                    print(f"Extracted from directory name (legacy): U={U}, J={J}, K={kpts_val}, EN={encut_val}")
+                    # Try to get n_atoms from structure
+                    if 'processed_structure' in locals():
+                        n_atoms = len(processed_structure)
+                    else:
+                        n_atoms = len(structure)
     
     # Load results using dedicated loader (SRP)
     loader = MAEResultsLoader(base_path)
@@ -311,8 +351,8 @@ def main():
     mae_ev = analyzer.calculate_mae(np.min(energies), np.max(energies))
     mae_mj_m3 = analyzer.calculate_mae_per_volume(mae_ev, volume)
     
-    # Generate comprehensive filename suffix with all parameters
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}"
+    # Generate comprehensive filename suffix with all parameters (matching 1_submit_refactored.py)
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
     
     # Display results
     print(f"\n{'=' * 70}")

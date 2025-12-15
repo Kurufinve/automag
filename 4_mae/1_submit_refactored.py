@@ -45,8 +45,8 @@ Nth = 10  # Number of theta points
 N_MAE = 20  # Number of points for MAE curve
 
 # Structure processing options
-symmetrize_cell = True  # Apply symmetrization using SpacegroupAnalyzer
-use_primitive_cell = True  # Convert to primitive cell (only if symmetrize_cell=True)
+standardize_cell = True  # Apply standardization using SpacegroupAnalyzer
+use_primitive_cell = True  # Convert to primitive cell (only if standardize_cell=True)
 
 # Get current directory
 cwd = os.getcwd()
@@ -140,13 +140,13 @@ def process_structure(structure_path: str,
                      to_primitive: bool = True,
                      symprec: float = 0.1) -> tuple:
     """
-    Process structure with optional symmetrization and primitive cell conversion.
+    Process structure with optional standardization and primitive cell conversion.
     
     Args:
         structure_path: Path to input structure
         magmoms: Magnetic moments (collinear)
         output_name: Output file name (will be used as base if cell_type needs to be appended)
-        symmetrize: If True, apply symmetrization using SpacegroupAnalyzer
+        symmetrize: If True, apply standardization using SpacegroupAnalyzer
         to_primitive: If True AND symmetrize=True, convert to primitive cell
         symprec: Symmetry precision for SpacegroupAnalyzer (default: 0.1)
     
@@ -187,7 +187,7 @@ def process_structure(structure_path: str,
     print(f"\nStructure Processing:")
     print(f"  Original structure: {original_natoms} atoms")
     print(f"  Symmetrize: {symmetrize}")
-    print(f"  Primitive cell: {to_primitive if symmetrize else 'N/A (no symmetrization)'}")
+    print(f"  Primitive cell: {to_primitive if symmetrize else 'N/A (no standardization)'}")
     print(f"  Cell type: {cell_type}")
     
     if not symmetrize:
@@ -196,7 +196,7 @@ def process_structure(structure_path: str,
         print(f"  → Using original cell: {len(processed_structure)} atoms")
     
     else:
-        # Apply symmetrization
+        # Apply standardization
         try:
             sga = SpacegroupAnalyzer(pmg_structure, symprec=symprec)
             
@@ -236,7 +236,7 @@ def process_structure(structure_path: str,
             print(f"  WARNING: Symmetrization failed: {e}")
             print(f"  → Falling back to original structure")
             processed_structure = pmg_structure
-            # Update cell type to 'original' since symmetrization failed
+            # Update cell type to 'original' since standardization failed
             cell_type = "original"
             # Update filename accordingly
             if output_name.endswith('_processed.vasp'):
@@ -520,13 +520,13 @@ def main():
         path_to_automag, original_formula, configuration, struct_suffix, calculator
     )
     
-    # Process structure with symmetrization options
+    # Process structure with standardization options
     processed_file = f'setting{setting:03d}_{configuration}_processed.vasp'
     processed_path, ncl_magmoms, processed_structure = process_structure(
         structure_path, 
         final_magmoms, 
         processed_file,
-        symmetrize=symmetrize_cell,
+        symmetrize=standardize_cell,
         to_primitive=use_primitive_cell
     )
     
@@ -554,7 +554,7 @@ def main():
     for kpts_val in kpts_list:
         for encut_val in encut_list:
             # Determine cell type for folder naming
-            if not symmetrize_cell:
+            if not standardize_cell:
                 cell_type_folder = 'input_cell'
             elif use_primitive_cell:
                 cell_type_folder = 'primitive_cell'
@@ -730,11 +730,11 @@ def main():
         f.write(f"Original formula: {original_formula}\n")
         f.write(f"Processed formula: {processed_formula}\n")
         f.write(f"Structure file: {processed_file}\n")
-        f.write(f"Symmetrization: {symmetrize_cell}\n")
-        f.write(f"Primitive cell: {use_primitive_cell if symmetrize_cell else 'N/A'}\n")
+        f.write(f"Standardization: {standardize_cell}\n")
+        f.write(f"Primitive cell: {use_primitive_cell if standardize_cell else 'N/A'}\n")
         
         # Determine cell type for filename generation
-        if not symmetrize_cell:
+        if not standardize_cell:
             cell_type = 'input_cell'
         elif use_primitive_cell:
             cell_type = 'primitive_cell'

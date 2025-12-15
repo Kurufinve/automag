@@ -22,11 +22,11 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 struct_suffix = ''
 
 # Structure processing options
-# Apply symmetrization using pymatgen's SpacegroupAnalyzer
-symmetrize_cell = True
+# Apply standardization using pymatgen's SpacegroupAnalyzer
+standardize_cell = True
 
-# Convert to primitive cell (only applied if symmetrize_cell=True)
-# If False, uses conventional cell from symmetrization
+# Convert to primitive cell (only applied if standardize_cell=True)
+# If False, uses conventional cell from standardization
 use_primitive_cell = True
 
 # choose the configuration to use for MAE calculation
