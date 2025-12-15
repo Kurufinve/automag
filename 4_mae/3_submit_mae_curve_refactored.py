@@ -326,9 +326,10 @@ def main():
         for mx, my, mz in ncl_magmoms:
             # Rotate magnetic moment to point along direction
             m_magnitude = np.sqrt(mx**2 + my**2 + mz**2)
-            rotated_magmoms.append(
-                tuple(direction.saxis * m_magnitude)
-            )
+            # Convert saxis tuple to numpy array for element-wise multiplication
+            saxis_array = np.array(direction.saxis)
+            rotated_moment = saxis_array * m_magnitude
+            rotated_magmoms.append(tuple(rotated_moment))
         
         # Update VASP parameters for this direction
         direction_params = vasp_params.copy()
