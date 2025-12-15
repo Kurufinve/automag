@@ -163,6 +163,19 @@ def main():
     encut = params['encut']
     kpts = params['kpts']
     
+    # Determine cell type from input parameters
+    symmetrize = params.get('symmetrize_cell', True)
+    use_primitive = params.get('use_primitive_cell', True)
+    if not symmetrize:
+        cell_type = 'input_cell'
+    elif use_primitive:
+        cell_type = 'primitive_cell'
+    else:
+        cell_type = 'conventional_cell'
+    
+    # Generate comprehensive filename suffix
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}"
+    
     print(f"\n{'=' * 70}")
     print(f"MAE CURVE ANALYSIS - Configuration: {configuration}")
     print(f"{'=' * 70}\n")
@@ -304,10 +317,10 @@ def main():
     output_dir = Path(f'outputs_{configuration}')
     output_dir.mkdir(exist_ok=True)
     
-    # Save numerical results
-    np.save(output_dir / f'K_{kpts}_MAE_alpha_U{U}_J{J}.npy', angles * 180 / np.pi)
-    np.save(output_dir / f'K_{kpts}_raw_MAE_E_U{U}_J{J}.npy', energies)
-    np.save(output_dir / f'K_{kpts}_MAE_E_U{U}_J{J}.npy', 
+    # Save numerical results with comprehensive naming
+    np.save(output_dir / f'mae_curve_alpha_{filename_suffix}.npy', angles * 180 / np.pi)
+    np.save(output_dir / f'mae_curve_raw_energy_{filename_suffix}.npy', energies)
+    np.save(output_dir / f'mae_curve_energy_per_atom_{filename_suffix}.npy', 
             (energies - e_ref) * (eV / (volume * Ang**3)) * 1e-6 / num_atoms)
     
     # Plot MAE curve
@@ -329,18 +342,18 @@ def main():
     
     ax.set_xlabel('Rotation angle α (degrees)', fontsize=14)
     ax.set_ylabel('Energy (MJ/m³ per atom)', fontsize=14)
-    ax.set_title(f'MAE Curve - {configuration} (U={U}, J={J})', fontsize=16)
+    ax.set_title(f'MAE Curve - {configuration} (U={U}, J={J}, K={kpts}, {cell_type})', fontsize=16)
     ax.legend(fontsize=12)
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(output_dir / f'MAE_curve_U{U}_J{J}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(output_dir / f'mae_curve_{filename_suffix}.png', dpi=300, bbox_inches='tight')
     plt.close()
     
-    print(f"\n✓ Plot saved to: {output_dir / f'MAE_curve_U{U}_J{J}.png'}")
+    print(f"\n✓ Plot saved to: {output_dir / f'mae_curve_{filename_suffix}.png'}")
     
     # Write text report
-    report_file = output_dir / f'MAE_curve_{configuration}_U{U}_J{J}.txt'
+    report_file = output_dir / f'mae_curve_report_{filename_suffix}.txt'
     
     with open(report_file, 'w') as f:
         f.write(f"{'=' * 70}\n")
@@ -357,7 +370,8 @@ def main():
         f.write(f"  U = {U} eV\n")
         f.write(f"  J = {J} eV\n")
         f.write(f"  ENCUT = {encut} eV\n")
-        f.write(f"  KPTS = {kpts}\n\n")
+        f.write(f"  KPTS = {kpts}\n")
+        f.write(f"  Cell type = {cell_type}\n\n")
         
         f.write("MAE Results:\n")
         f.write(f"  MAE = {mae_ev:.6f} eV\n")

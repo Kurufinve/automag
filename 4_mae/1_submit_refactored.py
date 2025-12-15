@@ -628,6 +628,16 @@ def main():
         f.write(f"Structure file: {processed_file}\n")
         f.write(f"Symmetrization: {symmetrize_cell}\n")
         f.write(f"Primitive cell: {use_primitive_cell if symmetrize_cell else 'N/A'}\n")
+        
+        # Determine cell type for filename generation
+        if not symmetrize_cell:
+            cell_type = 'input_cell'
+        elif use_primitive_cell:
+            cell_type = 'primitive_cell'
+        else:
+            cell_type = 'conventional_cell'
+        f.write(f"Cell type: {cell_type}\n")
+        
         f.write(f"Grid size: {Nth}×{Nph}\n")
         f.write(f"NCL magmoms: {ncl_magmoms}\n")
         f.write(f"Kpts values: {kpts_list}\n")
