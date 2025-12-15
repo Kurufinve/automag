@@ -21,11 +21,16 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 # struct_suffix = '_mp-1221736'
 struct_suffix = ''
 
+# Structure processing options
+# Apply symmetrization using pymatgen's SpacegroupAnalyzer
+symmetrize_cell = True
+
+# Convert to primitive cell (only applied if symmetrize_cell=True)
+# If False, uses conventional cell from symmetrization
+use_primitive_cell = True
+
 # choose the configuration to use for MAE calculation
 configuration = 'afm1'
-
-# try to find primitive cell from the given (super)cell taking into account the magnetic moments  
-standardize_cell = True
 
 # choose the absolute values given to up and down spins
 spin_values = {

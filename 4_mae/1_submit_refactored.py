@@ -44,6 +44,10 @@ Nph = 20  # Number of phi points
 Nth = 10  # Number of theta points
 N_MAE = 20  # Number of points for MAE curve
 
+# Structure processing options
+symmetrize_cell = True  # Apply symmetrization using SpacegroupAnalyzer
+use_primitive_cell = True  # Convert to primitive cell (only if symmetrize_cell=True)
+
 # Get current directory
 cwd = os.getcwd()
 
@@ -129,53 +133,133 @@ def load_configuration_from_collinear(path_to_automag: str,
     return str(structure_path), full_magmom, setting
 
 
-def standardize_structure(structure_path: str, 
-                         magmoms: list,
-                         output_name: str,
-                         to_primitive: bool = False) -> tuple:
+def process_structure(structure_path: str, 
+                     magmoms: list,
+                     output_name: str,
+                     symmetrize: bool = True,
+                     to_primitive: bool = True,
+                     symprec: float = 0.1) -> tuple:
     """
-    Standardize structure (optionally to primitive cell).
+    Process structure with optional symmetrization and primitive cell conversion.
     
     Args:
         structure_path: Path to input structure
-        magmoms: Magnetic moments
+        magmoms: Magnetic moments (collinear)
         output_name: Output file name
-        to_primitive: If True, convert to primitive cell (default: False)
+        symmetrize: If True, apply symmetrization using SpacegroupAnalyzer
+        to_primitive: If True AND symmetrize=True, convert to primitive cell
+        symprec: Symmetry precision for SpacegroupAnalyzer (default: 0.1)
     
     Returns:
-        Tuple of (standardized_structure_path, ncl_magmoms)
+        Tuple of (processed_structure_path, ncl_magmoms, processed_structure)
     """
+    from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+    
     # Load pymatgen structure
     pmg_structure = Structure.from_file(structure_path)
+    original_natoms = len(pmg_structure)
     
     # Add magnetic moments as site property
     pmg_structure.add_site_property("magmom", magmoms)
     
-    if to_primitive:
-        # Get primitive cell
-        standardized_structure = pmg_structure.get_primitive_structure(
-            tolerance=0.2,
-            use_site_props=True
-        )
-        print(f'Converted to primitive cell: {len(pmg_structure)} -> {len(standardized_structure)} atoms')
+    print(f"\nStructure Processing:")
+    print(f"  Original structure: {original_natoms} atoms")
+    print(f"  Symmetrize: {symmetrize}")
+    print(f"  Primitive cell: {to_primitive if symmetrize else 'N/A (no symmetrization)'}")
+    
+    if not symmetrize:
+        # Use original structure without modifications
+        processed_structure = pmg_structure
+        print(f"  → Using original cell: {len(processed_structure)} atoms")
+    
     else:
-        # Keep original cell
-        standardized_structure = pmg_structure
-        print(f'Using original cell: {len(standardized_structure)} atoms')
+        # Apply symmetrization
+        try:
+            sga = SpacegroupAnalyzer(pmg_structure, symprec=symprec)
+            
+            if to_primitive:
+                # Get primitive cell with symmetry
+                processed_structure = sga.get_primitive_standard_structure()
+                # Transfer magnetic moments to primitive cell
+                # Note: This is approximate - magmoms need to be mapped correctly
+                primitive_magmoms = _map_magmoms_to_transformed_structure(
+                    pmg_structure, processed_structure, magmoms
+                )
+                processed_structure.add_site_property("magmom", primitive_magmoms, overwrite=True)
+                print(f"  → Symmetrized + Primitive: {original_natoms} → {len(processed_structure)} atoms")
+                print(f"  → Space group: {sga.get_space_group_symbol()}")
+            
+            else:
+                # Get conventional cell with symmetry
+                processed_structure = sga.get_conventional_standard_structure()
+                # Transfer magnetic moments to conventional cell
+                conventional_magmoms = _map_magmoms_to_transformed_structure(
+                    pmg_structure, processed_structure, magmoms
+                )
+                processed_structure.add_site_property("magmom", conventional_magmoms, overwrite=True)
+                print(f"  → Symmetrized (conventional): {original_natoms} → {len(processed_structure)} atoms")
+                print(f"  → Space group: {sga.get_space_group_symbol()}")
+        
+        except Exception as e:
+            print(f"  WARNING: Symmetrization failed: {e}")
+            print(f"  → Falling back to original structure")
+            processed_structure = pmg_structure
     
-    # Save standardized structure
-    standardized_structure.to(filename=output_name, fmt='POSCAR')
+    # Save processed structure
+    processed_structure.to(filename=output_name, fmt='POSCAR')
     
-    # Get standardized magnetic moments (collinear)
-    standardized_magmom = list(standardized_structure.site_properties['magmom'])
+    # Get magnetic moments from processed structure
+    processed_magmom = list(processed_structure.site_properties['magmom'])
     
     # Convert to non-collinear format (0, 0, m)
-    ncl_magmom = [(0, 0, m) for m in standardized_magmom]
+    ncl_magmom = [(0, 0, m) for m in processed_magmom]
     
-    print(f'Standardized structure saved to: {output_name}')
-    print(f'Standardized magmoms (NCL): {len(ncl_magmom)} atoms')
+    print(f"  → Saved to: {output_name}")
+    print(f"  → NCL magmoms: {len(ncl_magmom)} values")
     
-    return output_name, ncl_magmom
+    return output_name, ncl_magmom, processed_structure
+
+
+def _map_magmoms_to_transformed_structure(original: Structure, 
+                                          transformed: Structure,
+                                          original_magmoms: list) -> list:
+    """
+    Map magnetic moments from original structure to transformed structure.
+    
+    This uses a simple nearest-neighbor approach. For more complex cases,
+    a more sophisticated mapping may be needed.
+    
+    Args:
+        original: Original structure with magnetic moments
+        transformed: Transformed structure (primitive/conventional)
+        original_magmoms: Original magnetic moments
+    
+    Returns:
+        List of magnetic moments for transformed structure
+    """
+    from scipy.spatial import cKDTree
+    
+    # Get fractional coordinates
+    original_frac = original.frac_coords
+    transformed_frac = transformed.frac_coords
+    
+    # Build KD-tree for original structure in Cartesian coordinates
+    original_cart = original.cart_coords
+    tree = cKDTree(original_cart)
+    
+    # Map each site in transformed structure to nearest site in original
+    transformed_cart = transformed.cart_coords
+    transformed_magmoms = []
+    
+    for site_cart in transformed_cart:
+        # Find nearest neighbor in original structure
+        dist, idx = tree.query(site_cart)
+        
+        # Use magnetic moment from nearest site
+        # This is approximate - works well if structures are similar
+        transformed_magmoms.append(original_magmoms[idx])
+    
+    return transformed_magmoms
 
 
 def generate_submission_script(mae_dir: Path,
@@ -330,28 +414,38 @@ def main():
     path_to_automag = os.environ.get('AUTOMAG_PATH')
     path_to_poscar = os.path.join(path_to_automag, 'geometries', poscar_file)
     
-    # Load input structure to get formula
+    # Load input structure to get original formula
     input_structure = Structure.from_file(path_to_poscar)
-    formula = input_structure.formula.replace(' ', '')
+    original_formula = input_structure.formula.replace(' ', '')
     
     print(f"\n{'=' * 70}")
-    print(f"MAE CALCULATION FOR {formula} - Configuration: {configuration}")
+    print(f"MAE CALCULATION FOR {original_formula} - Configuration: {configuration}")
     print(f"{'=' * 70}\n")
     
     # Load configuration from collinear calculations
     structure_path, final_magmoms, setting = load_configuration_from_collinear(
-        path_to_automag, formula, configuration, struct_suffix, calculator
+        path_to_automag, original_formula, configuration, struct_suffix, calculator
     )
     
-    # Standardize structure (use original cell to preserve atom count)
-    standardized_file = f'setting{setting:03d}_{configuration}_standardized.vasp'
-    to_primitive = False  # Set to True if you want primitive cell
-    standardized_path, ncl_magmoms = standardize_structure(
-        structure_path, final_magmoms, standardized_file, to_primitive
+    # Process structure with symmetrization options
+    processed_file = f'setting{setting:03d}_{configuration}_processed.vasp'
+    processed_path, ncl_magmoms, processed_structure = process_structure(
+        structure_path, 
+        final_magmoms, 
+        processed_file,
+        symmetrize=symmetrize_cell,
+        to_primitive=use_primitive_cell
     )
     
-    # Load standardized structure
-    atoms = read(standardized_path)
+    # Get formula from processed structure (may differ from original if primitive)
+    processed_formula = processed_structure.formula.replace(' ', '')
+    
+    print(f"\nUsing formula from processed structure: {processed_formula}")
+    if processed_formula != original_formula:
+        print(f"  (Original formula was: {original_formula})")
+    
+    # Load processed structure for ASE
+    atoms = read(processed_path)
     
     # Get U and J values for directory naming
     ldauu_val = params.get('ldauu', [0.0])
@@ -366,9 +460,9 @@ def main():
     # Iterate over kpts and encut combinations
     for kpts_val in kpts_list:
         for encut_val in encut_list:
-            # Create MAE calculation directory
+            # Create MAE calculation directory using processed structure formula
             calcfold_path = Path(path_to_automag) / 'CalcFold'
-            mae_base_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
+            mae_base_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
             mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}"
             mae_dir.mkdir(parents=True, exist_ok=True)
             
@@ -399,11 +493,11 @@ def main():
             
             # Copy structure to z folder
             import shutil
-            shutil.copy(standardized_path, z_dir / 'POSCAR')
+            shutil.copy(processed_path, z_dir / 'POSCAR')
             
             # Create ASE atoms for reference calculation
             from ase.io import read as ase_read
-            atoms_ref = ase_read(standardized_path)
+            atoms_ref = ase_read(processed_path)
             
             # Reference calculation parameters (self-consistent, no SAXIS rotation yet)
             params_ref = base_params_dict.copy()
@@ -457,11 +551,11 @@ def main():
                 
                 # Copy structure
                 import shutil
-                shutil.copy(standardized_path, calc_dir / 'POSCAR')
+                shutil.copy(processed_path, calc_dir / 'POSCAR')
                 
                 # Create ASE atoms and write VASP inputs
                 from ase.io import read as ase_read
-                atoms_calc = ase_read(standardized_path)
+                atoms_calc = ase_read(processed_path)
                 
                 # Prepare VASP parameters (without magmom for now)
                 params_with_saxis = base_params_dict.copy()
@@ -529,8 +623,11 @@ def main():
     # Save configuration info
     with open(f'{configuration}_mae_config.txt', 'w') as f:
         f.write(f"Configuration: {configuration}\n")
-        f.write(f"Structure: {standardized_file}\n")
-        f.write(f"Formula: {formula}\n")
+        f.write(f"Original formula: {original_formula}\n")
+        f.write(f"Processed formula: {processed_formula}\n")
+        f.write(f"Structure file: {processed_file}\n")
+        f.write(f"Symmetrization: {symmetrize_cell}\n")
+        f.write(f"Primitive cell: {use_primitive_cell if symmetrize_cell else 'N/A'}\n")
         f.write(f"Grid size: {Nth}×{Nph}\n")
         f.write(f"NCL magmoms: {ncl_magmoms}\n")
         f.write(f"Kpts values: {kpts_list}\n")
