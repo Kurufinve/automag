@@ -61,45 +61,65 @@ def main():
     print(f"Hard axis: {hard_axis}")
     print(f"Number of points: {N_MAE + 1}")
     
-    # Load standardized structure (from 1_submit)
+    # Load processed structure (from 1_submit)
     try:
-        # Try to find the standardized structure file
+        # Try to find the processed structure file (new naming)
         import glob
-        standardized_files = glob.glob(f'*{configuration}_standardized.vasp')
-        if standardized_files:
-            standardized_path = standardized_files[0]
+        processed_files = glob.glob(f'*{configuration}_processed.vasp')
+        standardized_files = glob.glob(f'*{configuration}_standardized.vasp')  # Legacy naming
+        
+        if processed_files:
+            structure_path = processed_files[0]
+        elif standardized_files:
+            structure_path = standardized_files[0]
         else:
-            print("ERROR: Standardized structure file not found!")
-            print(f"Expected: *{configuration}_standardized.vasp")
+            print("ERROR: Structure file not found!")
+            print(f"Expected: *{configuration}_processed.vasp or *{configuration}_standardized.vasp")
             print("Run 1_submit_refactored.py first.")
             return
     except Exception as e:
         print(f"ERROR loading structure: {e}")
         return
     
-    atoms = read(standardized_path)
-    print(f"Structure loaded from: {standardized_path}")
+    atoms = read(structure_path)
+    print(f"Structure loaded from: {structure_path}")
     
     # Load NCL magmoms from config file
+    ncl_magmoms = None
     config_file = f'{configuration}_mae_config.txt'
-    if os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            for line in f:
-                if 'NCL magmoms:' in line:
-                    # Parse the magmoms
-                    magmoms_str = line.split('NCL magmoms:')[1].strip()
-                    # This is a simplified parser - adjust as needed
-                    print(f"Loading magmoms from config: {config_file}")
-    else:
-        print(f"WARNING: Config file {config_file} not found")
     
-    # For now, use magmoms from global scope if available
-    if 'ncl_magmoms' in globals():
-        magmoms = ncl_magmoms
+    if os.path.exists(config_file):
+        print(f"Reading configuration from: {config_file}")
+        try:
+            with open(config_file, 'r') as f:
+                for line in f:
+                    if 'NCL magmoms:' in line:
+                        # Parse the magmoms - format is a list of tuples
+                        magmoms_str = line.split('NCL magmoms:')[1].strip()
+                        # Use eval to parse the list of tuples
+                        # Format: [(0, 0, m1), (0, 0, m2), ...]
+                        ncl_magmoms = eval(magmoms_str)
+                        print(f"Loaded {len(ncl_magmoms)} NCL magnetic moments from config")
+                        break
+        except Exception as e:
+            print(f"Warning: Could not parse NCL magmoms from config: {e}")
+            print(f"Will try to use ncl_magmoms from input.py if available")
     else:
-        print("ERROR: ncl_magmoms not defined")
-        print("Define in input.py or ensure 1_submit_refactored.py was run")
-        return
+        print(f"Warning: Config file {config_file} not found")
+        print(f"Will try to use ncl_magmoms from input.py if available")
+    
+    # Fall back to global scope if not loaded from config
+    if ncl_magmoms is None:
+        if 'ncl_magmoms' in globals():
+            ncl_magmoms = globals()['ncl_magmoms']
+            print(f"Using ncl_magmoms from input.py: {len(ncl_magmoms)} values")
+        else:
+            print("ERROR: ncl_magmoms not found!")
+            print("\nncl_magmoms should be either:")
+            print("  1. In the config file (created by 1_submit_refactored.py)")
+            print(f"  2. Defined in input.py as: ncl_magmoms = [(0, 0, m1), (0, 0, m2), ...]")
+            print("\nPlease run 1_submit_refactored.py first, or define ncl_magmoms manually.")
+            return
     
     # Create base parameters for non-collinear calculations
     base_params_dict = params.copy()
@@ -135,7 +155,7 @@ def main():
     job_ids = service.submit_mae_curve(
         atoms=atoms,
         base_params=base_params,
-        magmoms=magmoms,
+        magmoms=ncl_magmoms,
         n_points=N_MAE,
         easy_axis=easy_axis,
         hard_axis=hard_axis,
