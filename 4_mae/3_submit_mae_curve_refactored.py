@@ -313,28 +313,26 @@ def main():
     
     # Create directory structure
     # Use processed_formula to match the naming convention from 1_submit_refactored.py
-    mae_curve_dirname = f'mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
-    
-    # Build full path: CalcFold/{processed_formula}{struct_suffix}/{calculator}/{configuration}/{mae_curve_dir}
+    # MAE curve directories go in the same base directory as MAE grid calculations
+    # Pattern: CalcFold/{processed_formula}{struct_suffix}/{calculator}/{configuration}/
     base_calc_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
-    mae_curve_dir = base_calc_dir / mae_curve_dirname
     
     print(f"\nCreating calculation directories...")
-    print(f"  Base path: {mae_curve_dir}")
-    
-    mae_curve_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  Base path: {base_calc_dir}")
     
     # Create calculation directories for each point
     calc_dirs = []
     direction_names = []
     
     for direction in directions:
-        calc_dir = mae_curve_dir / direction.name
+        # Name each folder as RtMAE_{angle} where angle is in degrees
+        dir_name = f"RtMAE_{direction.angle:.1f}"
+        calc_dir = base_calc_dir / dir_name
         calc_dir.mkdir(parents=True, exist_ok=True)
         calc_dirs.append(calc_dir)
-        direction_names.append(direction.name)
+        direction_names.append(dir_name)
     
-    print(f"  → Created {len(calc_dirs)} calculation directories")
+    print(f"  → Created {len(calc_dirs)} RtMAE calculation directories")
     
     # Prepare base VASP parameters
     vasp_params = params.copy()
@@ -353,19 +351,13 @@ def main():
     print(f"\nWriting VASP input files...")
     
     for i, (direction, calc_dir) in enumerate(zip(directions, calc_dirs)):
-        # Set magnetic moments with rotated direction
-        rotated_magmoms = []
-        for mx, my, mz in ncl_magmoms:
-            # Rotate magnetic moment to point along direction
-            m_magnitude = np.sqrt(mx**2 + my**2 + mz**2)
-            # Convert saxis tuple to numpy array for element-wise multiplication
-            saxis_array = np.array(direction.saxis)
-            rotated_moment = saxis_array * m_magnitude
-            rotated_magmoms.append(tuple(rotated_moment))
+        # IMPORTANT: Do NOT rotate magnetic moments!
+        # Only SAXIS (spin quantization axis) rotates
+        # Magnetic moments remain constant - only their orientation relative to SAXIS changes
         
         # Update VASP parameters for this direction
         direction_params = vasp_params.copy()
-        direction_params['saxis'] = list(direction.saxis)
+        direction_params['saxis'] = list(direction.saxis)  # Rotate SAXIS only
         
         # Create VASP calculator
         calc = Vasp(
@@ -373,7 +365,7 @@ def main():
             **direction_params
         )
         
-        # Set atoms and magmoms
+        # Set atoms and magmoms (use original NCL magmoms without rotation)
         atoms_copy = atoms.copy()
         atoms_copy.set_initial_magnetic_moments(
             [m[2] for m in ncl_magmoms]  # Use z-component as collinear magmom
@@ -384,7 +376,7 @@ def main():
         calc.initialize(atoms_copy)
         calc.write_input(atoms_copy)
         
-        # Manually set NCL MAGMOM in INCAR
+        # Manually set NCL MAGMOM in INCAR (use original magmoms, not rotated)
         incar_path = calc_dir / 'INCAR'
         with open(incar_path, 'r') as f:
             incar_lines = f.readlines()
@@ -393,8 +385,8 @@ def main():
         with open(incar_path, 'w') as f:
             for line in incar_lines:
                 if line.strip().startswith('MAGMOM'):
-                    # Write NCL MAGMOM format
-                    magmom_str = ' '.join([f"{mx} {my} {mz}" for mx, my, mz in rotated_magmoms])
+                    # Write NCL MAGMOM format with ORIGINAL (unrotated) moments
+                    magmom_str = ' '.join([f"{mx} {my} {mz}" for mx, my, mz in ncl_magmoms])
                     f.write(f"MAGMOM = {magmom_str}\n")
                 else:
                     f.write(line)
@@ -404,12 +396,15 @@ def main():
     
     print(f"  ✓ All input files created")
     
-    # Create symlinks to reference WAVECAR and CHGCAR from MAE grid calculation
+    # Create symlinks to reference WAVECAR and CHGCAR from MAE grid calculation's z/ folder
     # Look for the reference 'z' directory from the MAE grid calculation
-    mae_grid_dir = base_calc_dir.parent / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
+    # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms/z/
+    mae_grid_dir = base_calc_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
     z_ref_dir = mae_grid_dir / 'z'
     
     print(f"\nCreating symlinks to reference files...")
+    print(f"  Reference directory: {z_ref_dir}")
+    
     if z_ref_dir.exists():
         wavecar_src = z_ref_dir / 'WAVECAR'
         chgcar_src = z_ref_dir / 'CHGCAR'
@@ -426,29 +421,34 @@ def main():
                 if chgcar_dst.exists() or chgcar_dst.is_symlink():
                     chgcar_dst.unlink()
                 
-                # Create symlinks
+                # Create symlinks (relative paths for portability)
                 try:
-                    wavecar_dst.symlink_to(wavecar_src)
-                    chgcar_dst.symlink_to(chgcar_src)
+                    # Use relative path from calc_dir to z_ref_dir
+                    rel_wavecar = os.path.relpath(wavecar_src, calc_dir)
+                    rel_chgcar = os.path.relpath(chgcar_src, calc_dir)
+                    
+                    os.symlink(rel_wavecar, wavecar_dst)
+                    os.symlink(rel_chgcar, chgcar_dst)
                     symlink_count += 1
                 except Exception as e:
                     print(f"  Warning: Could not create symlink in {calc_dir.name}: {e}")
             
-            print(f"  → Created symlinks in {symlink_count} directories")
-            print(f"  → Reference: {z_ref_dir}")
+            print(f"  → Created symlinks in {symlink_count}/{len(calc_dirs)} directories")
+            print(f"  ✓ All RtMAE directories ready for non-self-consistent calculations")
         else:
             print(f"  Warning: WAVECAR/CHGCAR not found in {z_ref_dir}")
             print(f"  → Run MAE grid calculation first (1_submit_refactored.py)")
+            print(f"  → Make sure the z/ calculation has completed successfully")
     else:
         print(f"  Warning: Reference directory not found: {z_ref_dir}")
         print(f"  → Run MAE grid calculation first (1_submit_refactored.py)")
     
-    # Generate submission scripts
+    # Generate submission scripts in the base calculation directory
     print(f"\nGenerating submission scripts...")
     
     # Generate both parallel and sequential scripts
     generate_mae_curve_submission_script(
-        mae_curve_dir=mae_curve_dir,
+        mae_curve_dir=base_calc_dir,
         calc_dirs=calc_dirs,
         direction_names=direction_names,
         parallel=True,
@@ -459,7 +459,7 @@ def main():
     )
     
     generate_mae_curve_submission_script(
-        mae_curve_dir=mae_curve_dir,
+        mae_curve_dir=base_calc_dir,
         calc_dirs=calc_dirs,
         direction_names=direction_names,
         parallel=False,
@@ -469,8 +469,8 @@ def main():
         environment_deactivate=environment_deactivate
     )
     
-    # Save configuration file
-    config_output_path = mae_curve_dir / f'{configuration}_mae_curve_config.txt'
+    # Save configuration file in the base calculation directory
+    config_output_path = base_calc_dir / f'{configuration}_mae_curve_config.txt'
     print(f"\nSaving configuration...")
     with open(config_output_path, 'w') as f:
         f.write(f"MAE Curve Configuration\n")
@@ -481,6 +481,7 @@ def main():
         f.write(f"Easy axis: {easy_axis}\n")
         f.write(f"Hard axis: {hard_axis}\n")
         f.write(f"Number of curve points: {len(directions)}\n")
+        f.write(f"Angle range: 0.0 to {directions[-1].angle:.1f} degrees\n")
         f.write(f"NCL magmoms: {ncl_magmoms}\n")
         f.write(f"LDAUU: {ldauu_val}\n")
         f.write(f"LDAUJ: {ldauj_val}\n")
@@ -489,6 +490,7 @@ def main():
         f.write(f"Cell type: {cell_type}\n")
         f.write(f"Structure file: {structure_path}\n")
         f.write(f"Reference directory: {z_ref_dir if z_ref_dir.exists() else 'Not found'}\n")
+        f.write(f"Directory pattern: RtMAE_{{angle}}\n")
     
     print(f"  → Saved to: {config_output_path}")
     
@@ -496,10 +498,17 @@ def main():
     print(f"\n{'=' * 70}")
     print(f"MAE CURVE SETUP COMPLETE")
     print(f"{'=' * 70}")
-    print(f"\nCalculation directory: {mae_curve_dir}")
-    print(f"Number of calculations: {len(calc_dirs)}")
+    print(f"\nCalculation base directory: {base_calc_dir}")
+    print(f"Number of RtMAE calculations: {len(calc_dirs)}")
+    print(f"Angle range: 0.0° to {directions[-1].angle:.1f}°")
+    print(f"\nDirectory structure:")
+    print(f"  {base_calc_dir}/")
+    print(f"    ├── RtMAE_0.0/")
+    print(f"    ├── RtMAE_{{angle}}/  (...)")
+    print(f"    ├── RtMAE_{directions[-1].angle:.1f}/")
+    print(f"    └── mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/  (MAE grid reference)")
     print(f"\nTo submit calculations:")
-    print(f"  cd {mae_curve_dir}")
+    print(f"  cd {base_calc_dir}")
     print(f"  ./submit_mae_curve.sh  # Parallel submission")
     print(f"  # OR")
     print(f"  sbatch submit_mae_curve_sequential.sh  # Sequential in one job")

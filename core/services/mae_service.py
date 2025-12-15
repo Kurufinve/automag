@@ -24,6 +24,7 @@ class MAEDirection:
     theta: float  # Polar angle in radians
     phi: float    # Azimuthal angle in radians
     saxis: Tuple[float, float, float]  # Unit vector
+    angle: float = 0.0  # Rotation angle from easy axis (for MAE curve)
     
     @classmethod
     def from_angles(cls, theta: float, phi: float) -> 'MAEDirection':
@@ -83,7 +84,7 @@ class MAEDirectionGenerator:
             hard_axis: Hard magnetization axis (unit vector)
             
         Returns:
-            List of MAE directions
+            List of MAE directions with rotation angles
         """
         directions = []
         
@@ -101,9 +102,14 @@ class MAEDirectionGenerator:
                 rotation_axis = np.cross(easy_axis, np.array([1, 0, 0]))
         rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
         
-        for alpha in np.linspace(0, 2 * np.pi, n_points + 1):
-            # Rotate from easy axis
-            saxis = np.cos(alpha) * easy_axis + np.sin(alpha) * rotation_axis
+        # Calculate angle between easy and hard axes
+        angle_max = np.arccos(np.clip(np.dot(easy_axis, hard_axis), -1, 1))
+        
+        for i, alpha in enumerate(np.linspace(0, angle_max, n_points + 1)):
+            # Rotate from easy axis using Rodrigues' rotation formula
+            saxis = (easy_axis * np.cos(alpha) + 
+                    rotation_axis * np.sin(alpha) * np.dot(rotation_axis, easy_axis) +
+                    np.cross(rotation_axis, easy_axis) * np.sin(alpha))
             saxis = saxis / np.linalg.norm(saxis)
             
             # Convert to spherical coordinates
@@ -112,7 +118,15 @@ class MAEDirectionGenerator:
             if phi < 0:
                 phi += 2 * np.pi
             
-            directions.append(MAEDirection(theta=theta, phi=phi, saxis=tuple(saxis)))
+            # Store angle in degrees for directory naming
+            angle_deg = alpha * 180.0 / np.pi
+            
+            directions.append(MAEDirection(
+                theta=theta, 
+                phi=phi, 
+                saxis=tuple(saxis),
+                angle=angle_deg
+            ))
         
         return directions
 
