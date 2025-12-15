@@ -185,7 +185,10 @@ def process_structure(structure_path: str,
                 primitive_magmoms = _map_magmoms_to_transformed_structure(
                     pmg_structure, processed_structure, magmoms
                 )
-                processed_structure.add_site_property("magmom", primitive_magmoms, overwrite=True)
+                # Remove existing magmom property if present, then add new one
+                if "magmom" in processed_structure.site_properties:
+                    processed_structure.remove_site_property("magmom")
+                processed_structure.add_site_property("magmom", primitive_magmoms)
                 print(f"  → Symmetrized + Primitive: {original_natoms} → {len(processed_structure)} atoms")
                 print(f"  → Space group: {sga.get_space_group_symbol()}")
             
@@ -196,7 +199,10 @@ def process_structure(structure_path: str,
                 conventional_magmoms = _map_magmoms_to_transformed_structure(
                     pmg_structure, processed_structure, magmoms
                 )
-                processed_structure.add_site_property("magmom", conventional_magmoms, overwrite=True)
+                # Remove existing magmom property if present, then add new one
+                if "magmom" in processed_structure.site_properties:
+                    processed_structure.remove_site_property("magmom")
+                processed_structure.add_site_property("magmom", conventional_magmoms)
                 print(f"  → Symmetrized (conventional): {original_natoms} → {len(processed_structure)} atoms")
                 print(f"  → Space group: {sga.get_space_group_symbol()}")
         
