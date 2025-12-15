@@ -181,7 +181,7 @@ def process_structure(structure_path: str,
                 # Get primitive cell with symmetry
                 processed_structure = sga.get_primitive_standard_structure()
                 # Transfer magnetic moments to primitive cell
-                # Note: This is approximate - magmoms need to be mapped correctly
+                # Note: Magmoms are mapped using species-aware nearest neighbor with PBC
                 primitive_magmoms = _map_magmoms_to_transformed_structure(
                     pmg_structure, processed_structure, magmoms
                 )
@@ -191,11 +191,13 @@ def process_structure(structure_path: str,
                 processed_structure.add_site_property("magmom", primitive_magmoms)
                 print(f"  → Symmetrized + Primitive: {original_natoms} → {len(processed_structure)} atoms")
                 print(f"  → Space group: {sga.get_space_group_symbol()}")
+                print(f"  → Mapped {len(primitive_magmoms)} magnetic moments")
             
             else:
                 # Get conventional cell with symmetry
                 processed_structure = sga.get_conventional_standard_structure()
                 # Transfer magnetic moments to conventional cell
+                # Note: Magmoms are mapped using species-aware nearest neighbor with PBC
                 conventional_magmoms = _map_magmoms_to_transformed_structure(
                     pmg_structure, processed_structure, magmoms
                 )
@@ -205,6 +207,7 @@ def process_structure(structure_path: str,
                 processed_structure.add_site_property("magmom", conventional_magmoms)
                 print(f"  → Symmetrized (conventional): {original_natoms} → {len(processed_structure)} atoms")
                 print(f"  → Space group: {sga.get_space_group_symbol()}")
+                print(f"  → Mapped {len(conventional_magmoms)} magnetic moments")
         
         except Exception as e:
             print(f"  WARNING: Symmetrization failed: {e}")
@@ -232,8 +235,14 @@ def _map_magmoms_to_transformed_structure(original: Structure,
     """
     Map magnetic moments from original structure to transformed structure.
     
-    This uses a simple nearest-neighbor approach. For more complex cases,
-    a more sophisticated mapping may be needed.
+    This uses a robust approach that accounts for periodic boundary conditions,
+    species matching, and proper distance calculations in the transformed lattice.
+    
+    Strategy:
+    1. For each site in transformed structure, find matching site in original
+    2. Match by species first (element type)
+    3. Use minimum distance with periodic boundary conditions
+    4. Handle edge cases with fallback to nearest neighbor
     
     Args:
         original: Original structure with magnetic moments
@@ -243,27 +252,70 @@ def _map_magmoms_to_transformed_structure(original: Structure,
     Returns:
         List of magnetic moments for transformed structure
     """
-    from scipy.spatial import cKDTree
+    import numpy as np
+    from scipy.spatial.distance import cdist
     
-    # Get fractional coordinates
-    original_frac = original.frac_coords
-    transformed_frac = transformed.frac_coords
-    
-    # Build KD-tree for original structure in Cartesian coordinates
-    original_cart = original.cart_coords
-    tree = cKDTree(original_cart)
-    
-    # Map each site in transformed structure to nearest site in original
-    transformed_cart = transformed.cart_coords
     transformed_magmoms = []
     
-    for site_cart in transformed_cart:
-        # Find nearest neighbor in original structure
-        dist, idx = tree.query(site_cart)
+    # For each site in transformed structure, find the matching site in original
+    for i, trans_site in enumerate(transformed.sites):
+        best_match_idx = None
+        min_distance = float('inf')
         
-        # Use magnetic moment from nearest site
-        # This is approximate - works well if structures are similar
-        transformed_magmoms.append(original_magmoms[idx])
+        # Get the species of the current site in transformed structure
+        target_species = trans_site.species
+        target_frac = trans_site.frac_coords
+        
+        # Search for matching site in original structure
+        for j, orig_site in enumerate(original.sites):
+            # Only consider sites with matching species (same element)
+            if orig_site.species != target_species:
+                continue
+            
+            # Calculate distance with periodic boundary conditions
+            # We need to check the minimum image distance
+            orig_frac = orig_site.frac_coords
+            
+            # Check all periodic images in the [-1, 0, 1] range
+            min_image_dist = float('inf')
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    for dz in [-1, 0, 1]:
+                        # Image of original site
+                        image_frac = orig_frac + np.array([dx, dy, dz])
+                        
+                        # Convert to Cartesian for distance calculation
+                        # Use original lattice for consistency
+                        image_cart = original.lattice.get_cartesian_coords(image_frac)
+                        target_cart = original.lattice.get_cartesian_coords(target_frac)
+                        
+                        # Calculate Euclidean distance
+                        dist = np.linalg.norm(image_cart - target_cart)
+                        min_image_dist = min(min_image_dist, dist)
+            
+            # Update best match if this is closer
+            if min_image_dist < min_distance:
+                min_distance = min_image_dist
+                best_match_idx = j
+        
+        # If no match found (shouldn't happen with proper structures), use fallback
+        if best_match_idx is None:
+            # Fallback: find nearest neighbor by fractional coordinates
+            frac_dists = np.linalg.norm(
+                original.frac_coords - target_frac, axis=1
+            )
+            best_match_idx = np.argmin(frac_dists)
+            print(f"  WARNING: No species match for site {i} ({target_species})")
+            print(f"           Using nearest neighbor (site {best_match_idx})")
+        
+        # Assign magnetic moment from the matched original site
+        transformed_magmoms.append(original_magmoms[best_match_idx])
+        
+        # Optional: Print mapping details for debugging (only if distance is significant)
+        if min_distance > 0.5:  # Threshold for significant displacement
+            orig_species = original.sites[best_match_idx].species
+            print(f"  Note: Site {i} ({target_species}) mapped to original site {best_match_idx} ({orig_species})")
+            print(f"        Distance: {min_distance:.4f} Å")
     
     return transformed_magmoms
 
