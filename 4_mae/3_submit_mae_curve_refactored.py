@@ -201,6 +201,7 @@ def main():
     # Load calculation parameters from config file
     ncl_magmoms = None
     cell_type = None  # Will be determined from config or input params
+    processed_formula = None  # Will be read from config or determined from structure
     ldauu_val = [0.0]
     ldauj_val = [0.0]
     kpts_val = None
@@ -223,6 +224,9 @@ def main():
                     elif 'Cell type:' in line:
                         cell_type = line.split('Cell type:')[1].strip()
                         print(f"  → Cell type: {cell_type}")
+                    elif 'Processed formula:' in line:
+                        processed_formula = line.split('Processed formula:')[1].strip()
+                        print(f"  → Processed formula: {processed_formula}")
                     elif 'LDAUU:' in line:
                         ldauu_str = line.split('LDAUU:')[1].strip()
                         ldauu_val = eval(ldauu_str)
@@ -262,9 +266,10 @@ def main():
     
     # Determine cell_type if not loaded from config
     if cell_type is None:
-        # Fallback to determining from input.py parameters
-        symmetrize = params.get('symmetrize_cell', True)
-        use_primitive = params.get('use_primitive_cell', True)
+        # Directly access symmetrize_cell and use_primitive_cell from global namespace
+        # These are imported from input.py module, not from params dictionary
+        symmetrize = globals().get('symmetrize_cell', True)
+        use_primitive = globals().get('use_primitive_cell', True)
         
         if not symmetrize:
             cell_type = 'input_cell'
@@ -273,6 +278,14 @@ def main():
         else:
             cell_type = 'conventional_cell'
         print(f"  → Cell type determined from input.py: {cell_type}")
+        print(f"     (symmetrize_cell={symmetrize}, use_primitive_cell={use_primitive})")
+    
+    # Determine processed formula if not loaded from config
+    # Use the actual formula with atom counts, not the reduced formula
+    if processed_formula is None:
+        # Get formula from structure file - this includes actual atom counts
+        processed_formula = pmg_structure.formula.replace(' ', '')
+        print(f"  → Processed formula determined from structure: {processed_formula}")
     
     # Extract U and J for magnetic atoms
     U = ldauu_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
@@ -282,6 +295,7 @@ def main():
     n_atoms = len(atoms)
     
     print(f"\nCalculation parameters:")
+    print(f"  Formula = {processed_formula}")
     print(f"  U = {U}, J = {J}")
     print(f"  K-points = {kpts_val}")
     print(f"  ENCUT = {encut_val} eV")
@@ -298,11 +312,11 @@ def main():
     print(f"  → Generated {len(directions)} directions")
     
     # Create directory structure
-    formula = pmg_structure.composition.reduced_formula
+    # Use processed_formula to match the naming convention from 1_submit_refactored.py
     mae_curve_dirname = f'mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
     
-    # Build full path: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/{mae_curve_dir}
-    base_calc_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
+    # Build full path: CalcFold/{processed_formula}{struct_suffix}/{calculator}/{configuration}/{mae_curve_dir}
+    base_calc_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
     mae_curve_dir = base_calc_dir / mae_curve_dirname
     
     print(f"\nCreating calculation directories...")
@@ -462,7 +476,7 @@ def main():
         f.write(f"MAE Curve Configuration\n")
         f.write(f"={'=' * 50}\n")
         f.write(f"Configuration: {configuration}\n")
-        f.write(f"Formula: {formula}\n")
+        f.write(f"Formula: {processed_formula}\n")
         f.write(f"Number of atoms: {len(atoms)}\n")
         f.write(f"Easy axis: {easy_axis}\n")
         f.write(f"Hard axis: {hard_axis}\n")
