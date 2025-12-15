@@ -145,7 +145,7 @@ def process_structure(structure_path: str,
     Args:
         structure_path: Path to input structure
         magmoms: Magnetic moments (collinear)
-        output_name: Output file name
+        output_name: Output file name (will be used as base if cell_type needs to be appended)
         symmetrize: If True, apply symmetrization using SpacegroupAnalyzer
         to_primitive: If True AND symmetrize=True, convert to primitive cell
         symprec: Symmetry precision for SpacegroupAnalyzer (default: 0.1)
@@ -162,10 +162,33 @@ def process_structure(structure_path: str,
     # Add magnetic moments as site property
     pmg_structure.add_site_property("magmom", magmoms)
     
+    # Determine cell type for filename
+    if not symmetrize:
+        cell_type = "original"
+    elif to_primitive:
+        cell_type = "primitive"
+    else:
+        cell_type = "conventional"
+    
+    # Generate dynamic output filename based on cell type
+    # Replace '_processed' suffix with cell type designation
+    if output_name.endswith('_processed.vasp'):
+        # Extract base name and replace with cell-type-specific name
+        base_name = output_name.replace('_processed.vasp', '')
+        dynamic_output_name = f"{base_name}_{cell_type}.vasp"
+    else:
+        # Fallback: append cell type before extension
+        name_parts = output_name.rsplit('.', 1)
+        if len(name_parts) == 2:
+            dynamic_output_name = f"{name_parts[0]}_{cell_type}.{name_parts[1]}"
+        else:
+            dynamic_output_name = f"{output_name}_{cell_type}"
+    
     print(f"\nStructure Processing:")
     print(f"  Original structure: {original_natoms} atoms")
     print(f"  Symmetrize: {symmetrize}")
     print(f"  Primitive cell: {to_primitive if symmetrize else 'N/A (no symmetrization)'}")
+    print(f"  Cell type: {cell_type}")
     
     if not symmetrize:
         # Use original structure without modifications
@@ -213,9 +236,21 @@ def process_structure(structure_path: str,
             print(f"  WARNING: Symmetrization failed: {e}")
             print(f"  → Falling back to original structure")
             processed_structure = pmg_structure
+            # Update cell type to 'original' since symmetrization failed
+            cell_type = "original"
+            # Update filename accordingly
+            if output_name.endswith('_processed.vasp'):
+                base_name = output_name.replace('_processed.vasp', '')
+                dynamic_output_name = f"{base_name}_{cell_type}.vasp"
+            else:
+                name_parts = output_name.rsplit('.', 1)
+                if len(name_parts) == 2:
+                    dynamic_output_name = f"{name_parts[0]}_{cell_type}.{name_parts[1]}"
+                else:
+                    dynamic_output_name = f"{output_name}_{cell_type}"
     
-    # Save processed structure
-    processed_structure.to(filename=output_name, fmt='POSCAR')
+    # Save processed structure with dynamic filename
+    processed_structure.to(filename=dynamic_output_name, fmt='POSCAR')
     
     # Get magnetic moments from processed structure
     processed_magmom = list(processed_structure.site_properties['magmom'])
@@ -223,10 +258,10 @@ def process_structure(structure_path: str,
     # Convert to non-collinear format (0, 0, m)
     ncl_magmom = [(0, 0, m) for m in processed_magmom]
     
-    print(f"  → Saved to: {output_name}")
+    print(f"  → Saved to: {dynamic_output_name}")
     print(f"  → NCL magmoms: {len(ncl_magmom)} values")
     
-    return output_name, ncl_magmom, processed_structure
+    return dynamic_output_name, ncl_magmom, processed_structure
 
 
 def _map_magmoms_to_transformed_structure(original: Structure, 
