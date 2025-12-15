@@ -203,13 +203,22 @@ def main():
         
         # Plot using dedicated plotter (SRP)
         plotter = MAEPlotter()
+        
+        # 1. 3D surface plot
         plotter.plot_theta_phi_surface(
             theta_grid, phi_grid, energy_grid,
             output_file=f'mae_surface_{configuration}.png'
         )
+        
+        # 2. 2D E vs Theta plot at different Phi values (in MJ/m³)
+        plotter.plot_energy_vs_theta_at_phi(
+            theta_grid, phi_grid, energy_grid,
+            volume=volume,
+            output_file=f'mae_theta_phi_{configuration}.png'
+        )
     else:
         print(f"WARNING: Incomplete grid ({len(valid_directions)}/{expected_points})")
-        print("Skipping surface plot. Complete all calculations first.")
+        print("Skipping plots. Complete all calculations first.")
     
     # Save results to file
     output_file = f'mae_results_{configuration}.txt'
@@ -235,6 +244,12 @@ def main():
         f.write(f"  hard_axis = np.array([{hard_dir.saxis[0]:.3f}, {hard_dir.saxis[1]:.3f}, {hard_dir.saxis[2]:.3f}])\n")
     
     print(f"Results saved to: {output_file}")
+    
+    if len(valid_directions) == expected_points:
+        print(f"\nPlots generated:")
+        print(f"  1. 3D surface plot: mae_surface_{configuration}.png")
+        print(f"  2. 2D E(θ) at different φ: mae_theta_phi_{configuration}.png")
+    
     print(f"\nNext step: Use the easy/hard axes above for MAE curve calculation")
     print(f"Add to input.py and run 3_submit_mae_curve_refactored.py")
 

@@ -370,3 +370,74 @@ class MAEPlotter:
         plt.close()
         
         print(f"MAE curve saved to {output_file}")
+    
+    @staticmethod
+    def plot_energy_vs_theta_at_phi(theta_grid: np.ndarray,
+                                     phi_grid: np.ndarray,
+                                     energy_grid: np.ndarray,
+                                     volume: float,
+                                     output_file: str = 'mae_energy_vs_theta.png'):
+        """
+        Plot 2D E vs Theta curves for different Phi values.
+        
+        Args:
+            theta_grid: Theta values (Nph+1, Nth+1)
+            phi_grid: Phi values (Nph+1, Nth+1)
+            energy_grid: Energy values in eV (Nph+1, Nth+1)
+            volume: Unit cell volume in Ų
+            output_file: Output file name
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib.cm as cm
+        
+        # Convert energy from eV to MJ/m³
+        eV = 1.602176634e-19  # J
+        Ang = 1e-10  # m
+        
+        # Subtract minimum energy to get relative energies
+        energy_rel_ev = energy_grid - np.min(energy_grid)
+        
+        # Convert to MJ/m³
+        energy_mj_m3 = (energy_rel_ev * eV / (volume * Ang**3)) * 1e-6
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, 7))
+        
+        # Get number of phi values
+        n_phi = phi_grid.shape[0]
+        
+        # Create colormap
+        colors = cm.viridis(np.linspace(0, 1, n_phi))
+        
+        # Plot each phi slice
+        for i in range(n_phi):
+            theta_deg = theta_grid[i, :] * 180 / np.pi
+            phi_deg = phi_grid[i, 0] * 180 / np.pi  # Phi is constant for each row
+            energy_slice = energy_mj_m3[i, :]
+            
+            # Skip if all zeros (no data)
+            if not np.allclose(energy_slice, 0, atol=1e-10):
+                ax.plot(theta_deg, energy_slice, '-o', 
+                       color=colors[i], 
+                       label=f'φ = {phi_deg:.1f}°',
+                       linewidth=1.5, 
+                       markersize=4,
+                       alpha=0.8)
+        
+        ax.set_xlabel('Theta (degrees)', fontsize=14)
+        ax.set_ylabel('Energy (MJ/m³)', fontsize=14)
+        ax.set_title('MAE: Energy vs Theta at Different Phi Values', fontsize=16)
+        ax.grid(True, alpha=0.3)
+        
+        # Add legend with smaller font and multiple columns if needed
+        if n_phi <= 10:
+            ax.legend(fontsize=9, loc='best')
+        else:
+            # For many phi values, use smaller font and multiple columns
+            ax.legend(fontsize=8, ncol=2, loc='best')
+        
+        plt.tight_layout()
+        plt.savefig(output_file, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"2D Energy vs Theta plot saved to {output_file}")
