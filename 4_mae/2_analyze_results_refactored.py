@@ -150,15 +150,33 @@ def main():
     volume = structure.volume
     
     # Try to load processed structure to get actual formula if available
+    # Need to determine which processed file to load based on standardization settings
     import glob
     processed_structure = None  # Initialize to None
-    processed_files = glob.glob(f'setting*_{configuration}_*.vasp')
+    
+    # Determine expected cell type from input parameters to find the correct processed file
+    # Access directly from global namespace (matching 1_submit_refactored.py)
+    standardize_cell_check = globals().get('standardize_cell', True)
+    use_primitive_cell_check = globals().get('use_primitive_cell', True)
+    
+    if not standardize_cell_check:
+        expected_cell_type = 'original'
+    elif use_primitive_cell_check:
+        expected_cell_type = 'primitive'
+    else:
+        expected_cell_type = 'conventional'
+    
+    # Search for processed file with the specific cell type
+    processed_files = glob.glob(f'setting*_{configuration}_{expected_cell_type}.vasp')
+    
     if processed_files:
         try:
+            # Use the first match (should be only one)
             processed_structure = Structure.from_file(processed_files[0])
             processed_formula = processed_structure.formula.replace(' ', '')
             print(f"Using processed structure: {processed_files[0]}")
             print(f"Processed formula: {processed_formula}")
+            print(f"Cell type: {expected_cell_type}")
             if processed_formula != original_formula:
                 print(f"Original formula: {original_formula}")
             formula = processed_formula  # Use processed formula
@@ -167,6 +185,8 @@ def main():
             formula = original_formula
             processed_structure = None
     else:
+        print(f"Warning: No processed structure file found matching pattern: setting*_{configuration}_{expected_cell_type}.vasp")
+        print(f"Using original formula: {original_formula}")
         formula = original_formula
     
     print(f"\n{'=' * 70}")
