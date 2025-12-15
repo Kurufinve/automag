@@ -60,26 +60,85 @@ def main():
     directions = MAEDirectionGenerator.generate_theta_phi_grid(Nth, Nph)
     print(f"Analyzing {len(directions)} calculations...")
     
-    # Load results using dedicated loader (SRP)
+    # Determine the base path for MAE calculations
+    # The script can be run from:
+    # 1. The MAE calculation directory itself (mae_U*_J*_K*_EN*/)
+    # 2. The 4_mae directory (need to find the MAE directory)
+    
     base_path = Path.cwd()
+    
+    # Check if we're in the MAE calculation directory (should have 'z' subfolder)
+    if not (base_path / 'z').exists():
+        # We're probably in 4_mae directory, need to find the MAE directory
+        # Try to construct the path from input parameters
+        try:
+            # Get U and J values from params if available
+            ldauu_val = params.get('ldauu', [0.0])
+            ldauj_val = params.get('ldauj', [0.0])
+            ldaul_val = params.get('ldaul', [])
+            U = ldauu_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
+            J = ldauj_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
+            
+            kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
+            encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
+            
+            # Construct expected path
+            calcfold_path = Path(path_to_automag) / 'CalcFold'
+            mae_base_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
+            mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}"
+            
+            if mae_dir.exists() and (mae_dir / 'z').exists():
+                base_path = mae_dir
+                print(f"Found MAE directory: {base_path}")
+            else:
+                print(f"ERROR: Could not find MAE calculation directory!")
+                print(f"Expected path: {mae_dir}")
+                print(f"\nPlease run this script from the MAE calculation directory:")
+                print(f"  cd {mae_dir}")
+                print(f"  python {Path(__file__).parent}/2_analyze_results_refactored.py")
+                return
+        except Exception as e:
+            print(f"ERROR: Could not determine MAE directory: {e}")
+            print(f"\nPlease run this script from within the MAE calculation directory.")
+            print(f"The directory should contain 'z/' subfolder and 'PhTh_*' subfolders.")
+            return
+    else:
+        print(f"Running from MAE directory: {base_path}")
+    
+    # Load results using dedicated loader (SRP)
     loader = MAEResultsLoader(base_path)
     
     # Load reference energy
     ref_energy = loader.load_reference_energy('z')
     if ref_energy is None:
         print("WARNING: Could not load reference energy from z/ directory")
+        print("Check that the reference calculation completed successfully.")
         ref_energy = 0.0
     
     print(f"Reference energy: {ref_energy:.6f} eV")
     
     # Load grid results
+    print("\nLoading grid calculation results...")
     results = loader.load_theta_phi_results(directions)
     
     print(f"Loaded {len(results)} results out of {len(directions)} calculations")
     
     if len(results) == 0:
-        print("ERROR: No results found!")
-        print("Make sure calculations have completed and OSZICAR files exist.")
+        print("\nERROR: No results found!")
+        print("\nPossible reasons:")
+        print("  1. Calculations haven't completed yet")
+        print("  2. OSZICAR files don't exist in PhTh_* directories")
+        print("  3. Running from wrong directory")
+        print(f"\nExpected structure:")
+        print(f"  {base_path}/z/OSZICAR (reference)")
+        print(f"  {base_path}/PhTh_0.01_0.01/OSZICAR")
+        print(f"  {base_path}/PhTh_0.01_18.0/OSZICAR")
+        print(f"  ... etc.")
+        print(f"\nChecking a few directories:")
+        for i, direction in enumerate(directions[:3]):  # Check first 3
+            calc_dir = base_path / direction.name
+            oszicar_path = calc_dir / 'OSZICAR'
+            print(f"  {direction.name}/OSZICAR exists: {oszicar_path.exists()}")
         return
     
     # Extract energies in order

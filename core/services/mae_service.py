@@ -238,21 +238,27 @@ class MAEResultsLoader:
         
         for direction in directions:
             folder = self.base_path / direction.name
-            oszicar_path = folder / 'singlepoint' / 'OSZICAR'
+            # Try multiple possible locations for OSZICAR
+            possible_paths = [
+                folder / 'OSZICAR',  # Direct in calculation folder (refactored workflow)
+                folder / 'singlepoint' / 'OSZICAR',  # Old workflow location
+            ]
             
-            if oszicar_path.exists():
-                try:
-                    oszicar = Oszicar(str(oszicar_path))
-                    energy = float(oszicar.all_energies[-1][-2])
-                    results[direction.name] = energy
-                except:
-                    pass
+            for oszicar_path in possible_paths:
+                if oszicar_path.exists():
+                    try:
+                        oszicar = Oszicar(str(oszicar_path))
+                        energy = float(oszicar.all_energies[-1][-2])
+                        results[direction.name] = energy
+                        break  # Found it, stop searching
+                    except Exception as e:
+                        continue  # Try next path
         
         return results
     
     def load_reference_energy(self, reference_dir: str = 'z') -> Optional[float]:
         """
-        Load reference energy from collinear calculation.
+        Load reference energy from self-consistent reference calculation.
         
         Args:
             reference_dir: Directory name for reference calculation
@@ -262,14 +268,18 @@ class MAEResultsLoader:
         """
         from pymatgen.io.vasp.outputs import Oszicar
         
+        # Reference calculation OSZICAR is directly in the reference folder
         ref_path = self.base_path / reference_dir / 'OSZICAR'
         
         if ref_path.exists():
             try:
                 oszicar = Oszicar(str(ref_path))
                 return float(oszicar.all_energies[-1][-2])
-            except:
+            except Exception as e:
+                print(f"Error reading reference OSZICAR: {e}")
                 pass
+        else:
+            print(f"Reference OSZICAR not found at: {ref_path}")
         
         return None
 
