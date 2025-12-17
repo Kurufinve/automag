@@ -310,7 +310,7 @@ def construct_config_filename(configuration: str,
         >>> construct_config_filename('fm1', 5.2, 0.0, 20, 830, 'primitive_cell', 10)
         'fm1_mae_config_U5.2_J0.0_K20_EN830_primitive_cell_10atoms.txt'
     """
-    return f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms.txt'
+    return f'mae_config_{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms.txt'
 
 
 def find_config_file(configuration: str,
@@ -362,7 +362,7 @@ def find_config_file(configuration: str,
             return str(config_path)
     
     # Try wildcard pattern
-    pattern = f'{configuration}_mae_config_*.txt'
+    pattern = f'mae_config_{configuration}*.txt'
     matching_configs = list(base_dir.glob(pattern))
     
     if matching_configs:
