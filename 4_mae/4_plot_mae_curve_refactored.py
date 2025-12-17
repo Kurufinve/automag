@@ -226,11 +226,11 @@ def main():
     print(f"MAE directory: {mae_dir}")
     
     # Load reference energy
-    reference_path = mae_dir / 'z' / 'singlepoint'
+    reference_path = mae_dir / 'z'
     ref_oszicar = reference_path / 'OSZICAR'
     
     if not ref_oszicar.exists():
-        reference_path = mae_dir / 'z' 
+        reference_path = mae_dir / 'z' / 'singlepoint'
         ref_oszicar = reference_path / 'OSZICAR'
         if not ref_oszicar.exists():
             print(f"ERROR: Reference OSZICAR not found: {ref_oszicar}")
@@ -247,11 +247,13 @@ def main():
     
     for alpha in np.linspace(0, 2 * np.pi, N_MAE + 1):
         folder_name = f'K_{kpts}_RtMAE_{np.round((alpha / np.pi) * 180, 2)}'
-        folder = mae_dir / folder_name / 'singlepoint'
+        folder = mae_dir / folder_name
         
         if not folder.exists():
-            print(f"Warning: Folder not found: {folder}")
-            continue
+            folder = mae_dir / folder_name / 'singlepoint'
+            if not folder.exists():
+                print(f"Warning: Folder not found: {folder}")
+                continue
         
         oszicar_path = folder / 'OSZICAR'
         outcar_path = folder / 'OUTCAR'
