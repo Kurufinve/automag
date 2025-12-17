@@ -8,6 +8,11 @@ Nth = 10
 # nomber of grid points for MAE curve (0-360 degrees)
 N_MAE = 20
 
+# generate full 360° circular MAE curve or just easy-to-hard segment
+# If True: generates full circle (0° to 360°)
+# If False: generates only segment from easy to hard axis
+get_full_mae_curve = True
+
 """ 
 poscar_file and struct_suffix are needed for
 finding the appropriate structure_folder in ../2_coll   

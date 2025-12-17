@@ -129,6 +129,75 @@ class MAEDirectionGenerator:
             ))
         
         return directions
+    
+    @staticmethod
+    def generate_mae_curve_full(n_points: int,
+                               easy_axis: np.ndarray,
+                               hard_axis: np.ndarray) -> List[MAEDirection]:
+        """
+        Generate points along the complete MAE curve forming a full circle.
+        
+        This method generates a full circular path in the plane defined by the
+        easy and hard axes, rotating 360 degrees around the rotation axis.
+        Unlike generate_mae_curve which only goes from easy to hard axis,
+        this generates the complete loop.
+        
+        Args:
+            n_points: Number of points for the full circle
+            easy_axis: Easy magnetization axis (unit vector)
+            hard_axis: Hard magnetization axis (unit vector)
+            
+        Returns:
+            List of MAE directions with rotation angles (0 to 360 degrees)
+        """
+        directions = []
+        
+        # Ensure normalized
+        easy_axis = easy_axis / np.linalg.norm(easy_axis)
+        hard_axis = hard_axis / np.linalg.norm(hard_axis)
+        
+        # Generate rotation axis perpendicular to both
+        rotation_axis = np.cross(easy_axis, hard_axis)
+        if np.linalg.norm(rotation_axis) < 1e-10:
+            # Axes are parallel, use arbitrary perpendicular axis
+            if abs(easy_axis[2]) < 0.9:
+                rotation_axis = np.cross(easy_axis, np.array([0, 0, 1]))
+            else:
+                rotation_axis = np.cross(easy_axis, np.array([1, 0, 0]))
+        rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+        
+        # Generate full circle (0 to 2*pi radians)
+        for i, alpha in enumerate(np.linspace(0, 2 * np.pi, n_points + 1)):
+            # Rotate from easy axis using Rodrigues' rotation formula
+            cos_alpha = np.cos(alpha)
+            sin_alpha = np.sin(alpha)
+            
+            # Rodrigues' rotation formula:
+            # v_rot = v*cos(α) + (k×v)*sin(α) + k*(k·v)*(1-cos(α))
+            # where k is the rotation axis and v is the vector to rotate
+            k_dot_v = np.dot(rotation_axis, easy_axis)
+            saxis = (easy_axis * cos_alpha +
+                    np.cross(rotation_axis, easy_axis) * sin_alpha +
+                    rotation_axis * k_dot_v * (1 - cos_alpha))
+            saxis = saxis / np.linalg.norm(saxis)
+            
+            # Convert to spherical coordinates
+            theta = np.arccos(np.clip(saxis[2], -1, 1))
+            phi = np.arctan2(saxis[1], saxis[0])
+            if phi < 0:
+                phi += 2 * np.pi
+            
+            # Store angle in degrees for directory naming
+            angle_deg = alpha * 180.0 / np.pi
+            
+            directions.append(MAEDirection(
+                theta=theta,
+                phi=phi,
+                saxis=tuple(saxis),
+                angle=angle_deg
+            ))
+        
+        return directions
 
 
 class MAEAnalyzer:

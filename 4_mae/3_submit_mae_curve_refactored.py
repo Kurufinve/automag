@@ -34,6 +34,7 @@ environment_deactivate = "deactivate"
 parallel_over_configurations = True
 struct_suffix = ''
 N_MAE = 20  # Number of points for MAE curve
+get_full_mae_curve = True  # If True, generate full 360° circle; if False, only easy-to-hard segment
 
 # Get current directory
 cwd = os.getcwd()
@@ -171,6 +172,7 @@ def main():
     print(f"Easy axis: {easy_axis}")
     print(f"Hard axis: {hard_axis}")
     print(f"Number of points: {N_MAE + 1}")
+    print(f"Full curve mode: {globals().get('get_full_mae_curve', True)}")
     
     # Load processed structure (from 1_submit)
     structure_path = None
@@ -308,13 +310,26 @@ def main():
     print(f"  Number of atoms = {n_atoms}")
     
     # Generate MAE curve directions
+    # Check if user wants full circle or just easy-to-hard segment
+    full_curve = globals().get('get_full_mae_curve', True)
+    
     print(f"\nGenerating MAE curve directions...")
-    directions = MAEDirectionGenerator.generate_mae_curve(
-        n_points=N_MAE,
-        easy_axis=easy_axis,
-        hard_axis=hard_axis
-    )
+    if full_curve:
+        print(f"  → Mode: Full 360° circular curve")
+        directions = MAEDirectionGenerator.generate_mae_curve_full(
+            n_points=N_MAE,
+            easy_axis=easy_axis,
+            hard_axis=hard_axis
+        )
+    else:
+        print(f"  → Mode: Segment from easy to hard axis")
+        directions = MAEDirectionGenerator.generate_mae_curve(
+            n_points=N_MAE,
+            easy_axis=easy_axis,
+            hard_axis=hard_axis
+        )
     print(f"  → Generated {len(directions)} directions")
+    print(f"  → Angle range: {directions[0].angle:.1f}° to {directions[-1].angle:.1f}°")
     
     # Create MAE curve calculation directory using EXACT same pattern as 1_submit_refactored.py
     # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_curve_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
@@ -485,8 +500,9 @@ def main():
         f.write(f"Number of atoms: {len(atoms)}\n")
         f.write(f"Easy axis: {easy_axis}\n")
         f.write(f"Hard axis: {hard_axis}\n")
+        f.write(f"Full MAE curve: {full_curve}\n")
         f.write(f"Number of curve points: {len(directions)}\n")
-        f.write(f"Angle range: 0.0 to {directions[-1].angle:.1f} degrees\n")
+        f.write(f"Angle range: {directions[0].angle:.1f} to {directions[-1].angle:.1f} degrees\n")
         f.write(f"NCL magmoms: {ncl_magmoms}\n")
         f.write(f"LDAUU: {ldauu_val}\n")
         f.write(f"LDAUJ: {ldauj_val}\n")
@@ -504,8 +520,9 @@ def main():
     print(f"MAE CURVE SETUP COMPLETE")
     print(f"{'=' * 70}")
     print(f"\nMAE curve directory: {mae_curve_dir}")
+    print(f"Curve mode: {'Full 360° circle' if full_curve else 'Easy-to-hard segment'}")
     print(f"Number of RtMAE calculations: {len(calc_dirs)}")
-    print(f"Angle range: 0.0° to {directions[-1].angle:.1f}°")
+    print(f"Angle range: {directions[0].angle:.1f}° to {directions[-1].angle:.1f}°")
     print(f"\nDirectory structure (matching 1_submit_refactored.py):")
     print(f"  {mae_base_dir}/")
     print(f"    ├── mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/  (MAE grid reference)")
@@ -513,9 +530,9 @@ def main():
     print(f"    │   ├── PhTh_*/  (grid calculations)")
     print(f"    │   └── ...")
     print(f"    └── mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/")
-    print(f"        ├── RtMAE_0.0/  (easy axis)")
+    print(f"        ├── RtMAE_{directions[0].angle:.1f}/  (starting point)")
     print(f"        ├── RtMAE_{{angle}}/  (...)")
-    print(f"        └── RtMAE_{directions[-1].angle:.1f}/  (hard axis)")
+    print(f"        └── RtMAE_{directions[-1].angle:.1f}/  (ending point)")
     print(f"\nTo submit calculations:")
     print(f"  cd {mae_curve_dir}")
     print(f"  ./submit_mae_curve.sh  # Parallel submission")
