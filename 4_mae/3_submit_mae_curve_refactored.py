@@ -161,31 +161,64 @@ def main():
     print(f"MAE CURVE CALCULATION - Configuration: {configuration}")
     print(f"{'=' * 70}\n")
     
-    # Load processed structure (from 1_submit)
-    structure_path = None
-    try:
-        # Try to find the processed structure file (new naming)
-        processed_files = glob.glob(f'*{configuration}_processed.vasp')
-        standardized_files = glob.glob(f'*{configuration}_standardized.vasp')  # Legacy naming
+    # Load processed structure file (matching approach from 2_analyze_results_refactored.py)
+    # Determine expected cell type from input parameters to find the correct processed file
+    import glob
+    
+    # Access standardization parameters from global namespace (matching other MAE scripts)
+    standardize_cell_check = globals().get('standardize_cell', True)
+    use_primitive_cell_check = globals().get('use_primitive_cell', True)
+    
+    # Determine expected cell type for file search
+    if not standardize_cell_check:
+        expected_cell_type = 'original'
+    elif use_primitive_cell_check:
+        expected_cell_type = 'primitive'
+    else:
+        expected_cell_type = 'conventional'
+    
+    # Search for processed file with the specific cell type
+    # Pattern: setting*_{configuration}_{cell_type}.vasp
+    processed_files = glob.glob(f'setting*_{configuration}_{expected_cell_type}.vasp')
+    
+    if processed_files:
+        structure_path = processed_files[0]
+        print(f"Found processed structure: {structure_path}")
+        print(f"  Cell type: {expected_cell_type}")
+    else:
+        # Fallback: try legacy naming patterns
+        print(f"Warning: No processed structure file found matching pattern: setting*_{configuration}_{expected_cell_type}.vasp")
+        print(f"Trying legacy naming patterns...")
         
-        if processed_files:
-            structure_path = processed_files[0]
-        elif standardized_files:
-            structure_path = standardized_files[0]
+        # Try old "processed" naming (without cell type suffix)
+        legacy_processed = glob.glob(f'*{configuration}_processed.vasp')
+        legacy_standardized = glob.glob(f'*{configuration}_standardized.vasp')
+        
+        if legacy_processed:
+            structure_path = legacy_processed[0]
+            print(f"Using legacy processed file: {structure_path}")
+        elif legacy_standardized:
+            structure_path = legacy_standardized[0]
+            print(f"Using legacy standardized file: {structure_path}")
         else:
             print("ERROR: Structure file not found!")
-            print(f"Expected: *{configuration}_processed.vasp or *{configuration}_standardized.vasp")
-            print("Run 1_submit_refactored.py first.")
+            print(f"Expected pattern: setting*_{configuration}_{expected_cell_type}.vasp")
+            print(f"  Or legacy: *{configuration}_processed.vasp")
+            print(f"  Or legacy: *{configuration}_standardized.vasp")
+            print("\nPlease run 1_submit_refactored.py first to generate the structure file.")
             return
-    except Exception as e:
-        print(f"ERROR loading structure: {e}")
-        return
     
-    atoms = read(structure_path)
-    pmg_structure = Structure.from_file(structure_path)
-    print(f"Structure loaded from: {structure_path}")
-    print(f"  Atoms: {len(atoms)}")
-    print(f"  Formula: {pmg_structure.composition.reduced_formula}")
+    # Load structure using both ASE and pymatgen
+    try:
+        atoms = read(structure_path)
+        pmg_structure = Structure.from_file(structure_path)
+        print(f"Structure loaded successfully")
+        print(f"  Atoms: {len(atoms)}")
+        print(f"  Formula: {pmg_structure.formula.replace(' ', '')}")
+        print(f"  Reduced formula: {pmg_structure.composition.reduced_formula}")
+    except Exception as e:
+        print(f"ERROR loading structure from {structure_path}: {e}")
+        return
     
     # Load calculation parameters from config file
     ncl_magmoms = None
