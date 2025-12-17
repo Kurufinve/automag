@@ -302,6 +302,8 @@ def main():
     print(f"  → Generated {len(directions)} directions")
     print(f"  → Angle range: {directions[0].angle:.1f}° to {directions[-1].angle:.1f}°")
     
+    mae_base_dir = calcfold_path / \
+        f"{formula}{struct_suffix}" / calculator / configuration
     # Create MAE curve calculation directory using utility function
     mae_curve_dir = construct_mae_directory_path(
         path_to_automag=path_to_automag,
@@ -505,10 +507,9 @@ def main():
     print(f"\nDirectory structure (matching 1_submit_refactored.py):")
     print(f"  {mae_base_dir}/")
     print(f"    ├── mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/  (MAE grid reference)")
-    print(f"    │   ├── z/  (reference self-consistent calculation)")
-    print(f"    │   ├── PhTh_*/  (grid calculations)")
-    print(f"    │   └── ...")
-    print(f"    └── mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/")
+    print(f"        ├── z/  (reference self-consistent calculation)")
+    print(f"        ├── PhTh_*/  (grid calculations)")
+    print(f"        ├── ...")
     print(f"        ├── RtMAE_{directions[0].angle:.1f}/  (starting point)")
     print(f"        ├── RtMAE_{{angle}}/  (...)")
     print(f"        └── RtMAE_{directions[-1].angle:.1f}/  (ending point)")
