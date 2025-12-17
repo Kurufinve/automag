@@ -407,7 +407,7 @@ def main():
     # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_curve_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
     calcfold_path = Path(path_to_automag) / 'CalcFold'
     mae_base_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
-    mae_curve_dir = mae_base_dir / f"mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    mae_curve_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
     mae_curve_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\nCreating MAE curve directory: {mae_curve_dir}")
@@ -583,7 +583,7 @@ def main():
         f.write(f"Cell type: {cell_type}\n")
         f.write(f"Structure file: {structure_path}\n")
         f.write(f"Reference directory: {z_ref_dir if z_ref_dir.exists() else 'Not found'}\n")
-        f.write(f"Directory pattern: mae_curve_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/RtMAE_{{angle}}\n")
+        f.write(f"Directory pattern: mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/RtMAE_{{angle}}\n")
     
     print(f"  → Saved to: {config_output_path}")
     

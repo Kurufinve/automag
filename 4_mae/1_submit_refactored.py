@@ -744,7 +744,8 @@ def main():
         f.write(f"Configuration: {configuration}\n")
         f.write(f"Original formula: {original_formula}\n")
         f.write(f"Processed formula: {processed_formula}\n")
-        f.write(f"Structure file: {processed_file}\n")
+        # f.write(f"Structure file: {processed_file}\n")
+        f.write(f"Structure file: {processed_path}\n")
         f.write(f"Standardization: {standardize_cell}\n")
         f.write(f"Primitive cell: {use_primitive_cell if standardize_cell else 'N/A'}\n")
         
