@@ -259,7 +259,8 @@ def main():
     n_atoms = len(atoms)
     
     # Construct dynamic config filename
-    config_file = f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms.txt'
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    config_file = f'mae_config_{filename_suffix}.txt'
     
     # Try to find config file if exact match not found
     if not os.path.exists(config_file):
