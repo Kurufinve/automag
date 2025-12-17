@@ -738,6 +738,14 @@ def main():
     encut_val_config = encut_list[0]
     n_atoms_config = len(processed_structure)
     
+    # Determine cell type for filename generation
+    if not standardize_cell:
+        cell_type = 'input_cell'
+    elif use_primitive_cell:
+        cell_type = 'primitive_cell'
+    else:
+        cell_type = 'conventional_cell'
+
     filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
 
     config_filename = f'mae_config_{filename_suffix}.txt'
@@ -751,13 +759,7 @@ def main():
         f.write(f"Standardization: {standardize_cell}\n")
         f.write(f"Primitive cell: {use_primitive_cell if standardize_cell else 'N/A'}\n")
         
-        # Determine cell type for filename generation
-        if not standardize_cell:
-            cell_type = 'input_cell'
-        elif use_primitive_cell:
-            cell_type = 'primitive_cell'
-        else:
-            cell_type = 'conventional_cell'
+
         f.write(f"Cell type: {cell_type}\n")
         
         f.write(f"Grid size: {Nth}×{Nph}\n")
