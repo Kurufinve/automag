@@ -738,7 +738,9 @@ def main():
     encut_val_config = encut_list[0]
     n_atoms_config = len(processed_structure)
     
-    config_filename = f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val_config}_EN{encut_val_config}_{cell_type_folder}_{n_atoms_config}atoms.txt'
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+
+    config_filename = f'mae_config_{filename_suffix}.txt'
     
     with open(config_filename, 'w') as f:
         f.write(f"Configuration: {configuration}\n")

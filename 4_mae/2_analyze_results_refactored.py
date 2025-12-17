@@ -406,6 +406,11 @@ def main():
     print(f"  {mae_mj_m3:.3f} MJ/m³")
     print(f"{'=' * 70}\n")
     
+    # Create output directory
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    output_dir = Path(f'outputs_{filename_suffix}')
+    output_dir.mkdir(exist_ok=True)
+
     # Reshape for plotting if we have complete grid
     expected_points = (Nth + 1) * (Nph + 1)
     if len(valid_directions) == expected_points:
@@ -429,21 +434,22 @@ def main():
         # 1. 3D surface plot
         plotter.plot_theta_phi_surface(
             theta_grid, phi_grid, energy_grid,
-            output_file=f'mae_surface_{filename_suffix}.png'
+            output_file=f'{output_dir}/mae_surface_{filename_suffix}.png'
         )
         
         # 2. 2D E vs Theta plot at different Phi values (in MJ/m³)
         plotter.plot_energy_vs_theta_at_phi(
             theta_grid, phi_grid, energy_grid,
             volume=volume,
-            output_file=f'mae_theta_phi_{filename_suffix}.png'
+            output_file=f'{output_dir}/mae_theta_phi_{filename_suffix}.png'
         )
     else:
         print(f"WARNING: Incomplete grid ({len(valid_directions)}/{expected_points})")
         print("Skipping plots. Complete all calculations first.")
     
+
     # Save results to file
-    output_file = f'mae_results_{filename_suffix}.txt'
+    output_file = output_dir / f'mae_grid_report_{filename_suffix}.txt'
     with open(output_file, 'w') as f:
         f.write(f"MAE Analysis Results for {formula} - {configuration}\n")
         f.write(f"{'=' * 70}\n\n")
@@ -483,8 +489,9 @@ def main():
         else:
             cell_type_config = 'conventional_cell'
         
-        config_filename = f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_config}_{n_atoms}atoms.txt'
-        
+        # config_filename = f'mae_config_{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_config}_{n_atoms}atoms.txt'
+        config_filename = f'mae_config_{filename_suffix}.txt'
+
         # Check if config file exists
         if os.path.exists(config_filename):
             # Read existing config

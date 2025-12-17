@@ -378,7 +378,8 @@ def main():
         mag_props = None
     
     # Create output directory
-    output_dir = Path(f'outputs_{configuration}')
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    output_dir = Path(f'outputs_{filename_suffix}')
     output_dir.mkdir(exist_ok=True)
     
     # Save numerical results with comprehensive naming
