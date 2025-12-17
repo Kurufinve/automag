@@ -213,14 +213,14 @@ def main():
     print(f"Number of atoms: {num_atoms}")
     print(f"U = {U}, J = {J}, ENCUT = {encut}, KPTS = {kpts}")
     
-    # Determine results path
+    # Determine results path (matching naming convention from other MAE scripts)
     compound_dir = Path(calcfold_path) / f"{formula}{struct_suffix}"
     state_dir = compound_dir / calculator / configuration
-    mae_dir = state_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}'
+    mae_dir = state_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms'
     
     if not mae_dir.exists():
         print(f"ERROR: MAE directory not found: {mae_dir}")
-        print("Run 3_submit_mae_curve_refactored.py first.")
+        print("Run 1_submit_refactored.py first.")
         return
     
     print(f"MAE directory: {mae_dir}")
