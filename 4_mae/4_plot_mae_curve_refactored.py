@@ -165,10 +165,10 @@ def main():
     
     # Determine cell type from input parameters
     standardize_cell = globals().get('standardize_cell', True)
-    use_primitive = params.get('use_primitive_cell', True)
-    if not symmetrize:
+    use_primitive_cell = globals().get('use_primitive_cell', True)
+    if not standardize_cell:
         cell_type = 'input_cell'
-    elif use_primitive:
+    elif use_primitive_cell:
         cell_type = 'primitive_cell'
     else:
         cell_type = 'conventional_cell'
