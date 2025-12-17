@@ -21,6 +21,15 @@ from core.services.mae_service import (
     MAEPlotter
 )
 
+# Import MAE utilities
+from mae_utils import (
+    load_processed_structure,
+    extract_hubbard_uj_from_params,
+    extract_convergence_params_from_params,
+    construct_mae_directory_path,
+    construct_config_filename
+)
+
 # Default values
 calculator = 'vasp'
 struct_suffix = ''
@@ -144,48 +153,26 @@ def main():
     path_to_automag = os.environ.get('AUTOMAG_PATH')
     path_to_poscar = os.path.join(path_to_automag, 'geometries', poscar_file)
     
-    # Load structure to get processed formula
+    # Load structure to get formula
     structure = Structure.from_file(path_to_poscar)
     original_formula = structure.formula.replace(' ', '')
     volume = structure.volume
     
-    # Try to load processed structure to get actual formula if available
-    # Need to determine which processed file to load based on standardization settings
-    import glob
-    processed_structure = None  # Initialize to None
+    # Load processed structure using utility function
+    structure_path, processed_structure, expected_cell_type, cell_type_folder = load_processed_structure(
+        configuration=configuration,
+        standardize_cell=globals().get('standardize_cell', True),
+        use_primitive_cell=globals().get('use_primitive_cell', True),
+        fallback_to_legacy=False,  # No legacy fallback for analysis
+        verbose=True
+    )
     
-    # Determine expected cell type from input parameters to find the correct processed file
-    # Access directly from global namespace (matching 1_submit_refactored.py)
-    standardize_cell_check = globals().get('standardize_cell', True)
-    use_primitive_cell_check = globals().get('use_primitive_cell', True)
-    
-    if not standardize_cell_check:
-        expected_cell_type = 'original'
-    elif use_primitive_cell_check:
-        expected_cell_type = 'primitive'
+    if processed_structure is not None:
+        processed_formula = processed_structure.formula.replace(' ', '')
+        if processed_formula != original_formula:
+            print(f"Original formula: {original_formula}")
+        formula = processed_formula  # Use processed formula
     else:
-        expected_cell_type = 'conventional'
-    
-    # Search for processed file with the specific cell type
-    processed_files = glob.glob(f'setting*_{configuration}_{expected_cell_type}.vasp')
-    
-    if processed_files:
-        try:
-            # Use the first match (should be only one)
-            processed_structure = Structure.from_file(processed_files[0])
-            processed_formula = processed_structure.formula.replace(' ', '')
-            print(f"Using processed structure: {processed_files[0]}")
-            print(f"Processed formula: {processed_formula}")
-            print(f"Cell type: {expected_cell_type}")
-            if processed_formula != original_formula:
-                print(f"Original formula: {original_formula}")
-            formula = processed_formula  # Use processed formula
-        except Exception as e:
-            print(f"Warning: Could not load processed structure: {e}")
-            formula = original_formula
-            processed_structure = None
-    else:
-        print(f"Warning: No processed structure file found matching pattern: setting*_{configuration}_{expected_cell_type}.vasp")
         print(f"Using original formula: {original_formula}")
         formula = original_formula
     
@@ -215,32 +202,16 @@ def main():
     # Check if we're in the MAE calculation directory (should have 'z' subfolder)
     if not (base_path / 'z').exists():
         # We're probably in 4_mae directory, need to find the MAE directory
-        # Try to construct the path from input parameters
+        # Try to construct the path from input parameters using utility functions
         try:
-            # Get U and J values from params if available
-            ldauu_val = params.get('ldauu', [0.0])
-            ldauj_val = params.get('ldauj', [0.0])
-            ldaul_val = params.get('ldaul', [])
-            U = ldauu_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
-            J = ldauj_val[next((i for i, x in enumerate(ldaul_val) if x > 0), 0)] if ldaul_val else 0.0
+            # Extract parameters using utility functions
+            U, J = extract_hubbard_uj_from_params(params)
+            kpts_val, encut_val = extract_convergence_params_from_params(params, use_first=True)
             
-            kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
-            encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
-            
-            # Determine cell type from input parameters (matching 1_submit_refactored.py)
-            # Access directly from global namespace, not from params dictionary
-            standardize_cell = globals().get('standardize_cell', True)
-            use_primitive_cell = globals().get('use_primitive_cell', True)
-            
-            if not standardize_cell:
-                cell_type = 'input_cell'
-            elif use_primitive_cell:
-                cell_type = 'primitive_cell'
-            else:
-                cell_type = 'conventional_cell'
+            # Use cell_type_folder from earlier load_processed_structure call
+            cell_type = cell_type_folder
             
             # Get atom count from processed structure if available
-            # Use processed_structure from function scope (defined earlier at line 153)
             if processed_structure is not None:
                 n_atoms = len(processed_structure)
                 print(f"Using processed structure atom count: {n_atoms}")
@@ -248,10 +219,19 @@ def main():
                 n_atoms = len(structure)
                 print(f"Using original structure atom count: {n_atoms}")
             
-            # Construct expected path (matching 1_submit_refactored.py)
-            calcfold_path = Path(path_to_automag) / 'CalcFold'
-            mae_base_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
-            mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+            # Construct expected path using utility function
+            mae_dir = construct_mae_directory_path(
+                path_to_automag=path_to_automag,
+                formula=formula,
+                calculator=calculator,
+                configuration=configuration,
+                U=U, J=J,
+                kpts_val=kpts_val,
+                encut_val=encut_val,
+                cell_type=cell_type,
+                n_atoms=n_atoms,
+                struct_suffix=struct_suffix
+            )
             
             if mae_dir.exists() and (mae_dir / 'z').exists():
                 base_path = mae_dir
@@ -381,8 +361,18 @@ def main():
     mae_ev = analyzer.calculate_mae(np.min(energies), np.max(energies))
     mae_mj_m3 = analyzer.calculate_mae_per_volume(mae_ev, volume)
     
-    # Generate comprehensive filename suffix with all parameters (matching 1_submit_refactored.py)
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    # Generate config filename using utility function
+    config_filename = construct_config_filename(
+        configuration=configuration,
+        U=U, J=J,
+        kpts_val=kpts_val,
+        encut_val=encut_val,
+        cell_type=cell_type,
+        n_atoms=n_atoms
+    )
+    
+    # Extract filename suffix for output files (remove '_mae_config' prefix and '.txt' extension)
+    filename_suffix = config_filename.replace('_mae_config', '').replace('.txt', '')
     
     # Display results
     print(f"\n{'=' * 70}")
@@ -406,8 +396,7 @@ def main():
     print(f"  {mae_mj_m3:.3f} MJ/m³")
     print(f"{'=' * 70}\n")
     
-    # Create output directory
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    # Create output directory using the filename suffix
     output_dir = Path(f'outputs_{filename_suffix}')
     output_dir.mkdir(exist_ok=True)
 
@@ -481,17 +470,7 @@ def main():
     
     # Update configuration file with calculated easy/hard axes
     try:
-        # Construct config filename matching the dynamic naming pattern
-        if not standardize_cell:
-            cell_type_config = 'input_cell'
-        elif use_primitive_cell:
-            cell_type_config = 'primitive_cell'
-        else:
-            cell_type_config = 'conventional_cell'
-        
-        # config_filename = f'mae_config_{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_config}_{n_atoms}atoms.txt'
-        config_filename = f'mae_config_{filename_suffix}.txt'
-
+        # Config filename already constructed using utility function earlier
         # Check if config file exists
         if os.path.exists(config_filename):
             # Read existing config

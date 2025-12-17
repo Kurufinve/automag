@@ -29,6 +29,14 @@ from core.services.mae_service import (
     MAEPlotter
 )
 
+# Import MAE utilities
+from mae_utils import (
+    load_processed_structure,
+    extract_hubbard_uj_from_params,
+    extract_convergence_params_from_params,
+    construct_mae_directory_path
+)
+
 # Physical constants
 Bh = 9.274009994e-24  # Bohr magneton in J/T
 mu0 = 4 * np.pi * 1e-7  # Vacuum permeability in H/m
@@ -156,51 +164,28 @@ def main():
     original_formula = original_structure.formula.replace(' ', '')
     volume = original_structure.volume
     
-    # Determine expected cell type from input parameters to find correct processed file
-    standardize_cell = globals().get('standardize_cell', True)
-    use_primitive_cell = globals().get('use_primitive_cell', True)
+    # Load processed structure using utility function
+    structure_path, processed_structure, expected_cell_type, cell_type_folder = load_processed_structure(
+        configuration=configuration,
+        standardize_cell=globals().get('standardize_cell', True),
+        use_primitive_cell=globals().get('use_primitive_cell', True),
+        fallback_to_legacy=False,
+        verbose=True
+    )
     
-    if not standardize_cell:
-        expected_cell_type = 'original'
-        cell_type = 'input_cell'
-    elif use_primitive_cell:
-        expected_cell_type = 'primitive'
-        cell_type = 'primitive_cell'
+    if processed_structure is not None:
+        formula = processed_structure.formula.replace(' ', '')
+        num_atoms = len(processed_structure)
+        if formula != original_formula:
+            print(f"Original formula: {original_formula}")
     else:
-        expected_cell_type = 'conventional'
-        cell_type = 'conventional_cell'
-    
-    # Try to load processed structure to get actual formula and atom count
-    import glob
-    processed_structure = None
-    processed_files = glob.glob(f'setting*_{configuration}_{expected_cell_type}.vasp')
-    
-    if processed_files:
-        try:
-            processed_structure = Structure.from_file(processed_files[0])
-            formula = processed_structure.formula.replace(' ', '')
-            num_atoms = len(processed_structure)
-            print(f"Using processed structure: {processed_files[0]}")
-            print(f"Processed formula: {formula}")
-            print(f"Cell type: {expected_cell_type}")
-            if formula != original_formula:
-                print(f"Original formula: {original_formula}")
-        except Exception as e:
-            print(f"Warning: Could not load processed structure: {e}")
-            formula = original_formula
-            num_atoms = len(original_structure)
-            processed_structure = None
-    else:
-        print(f"Warning: No processed structure file found matching pattern: setting*_{configuration}_{expected_cell_type}.vasp")
         print(f"Using original structure")
         formula = original_formula
         num_atoms = len(original_structure)
     
-    # Get U, J values
-    U = np.round(float(params['ldauu'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]), 1)
-    J = np.round(float(params['ldauj'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]), 1)
-    encut = params['encut']
-    kpts = params['kpts']
+    # Extract parameters using utility functions
+    U, J = extract_hubbard_uj_from_params(params)
+    kpts_val, encut_val = extract_convergence_params_from_params(params, use_first=True)
     
     # Generate comprehensive filename suffix (matching other MAE scripts)
     filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms"
@@ -211,12 +196,21 @@ def main():
     print(f"Formula: {formula}")
     print(f"Volume: {volume:.2f} ų")
     print(f"Number of atoms: {num_atoms}")
-    print(f"U = {U}, J = {J}, ENCUT = {encut}, KPTS = {kpts}")
+    print(f"U = {U}, J = {J}, ENCUT = {encut_val}, KPTS = {kpts_val}")
     
-    # Determine results path (matching naming convention from other MAE scripts)
-    compound_dir = Path(calcfold_path) / f"{formula}{struct_suffix}"
-    state_dir = compound_dir / calculator / configuration
-    mae_dir = state_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms'
+    # Construct MAE directory path using utility function
+    mae_dir = construct_mae_directory_path(
+        path_to_automag=path_to_automag,
+        formula=formula,
+        calculator=calculator,
+        configuration=configuration,
+        U=U, J=J,
+        kpts_val=kpts_val,
+        encut_val=encut_val,
+        cell_type=cell_type_folder,
+        n_atoms=num_atoms,
+        struct_suffix=struct_suffix
+    )
     
     if not mae_dir.exists():
         print(f"ERROR: MAE directory not found: {mae_dir}")
@@ -378,7 +372,7 @@ def main():
         mag_props = None
     
     # Create output directory
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_folder}_{num_atoms}atoms"
     output_dir = Path(f'outputs_{filename_suffix}')
     output_dir.mkdir(exist_ok=True)
     
@@ -398,7 +392,7 @@ def main():
     energies_plot = (energies - e_ref) * (eV / (volume * Ang**3)) * 1e-6 / num_atoms
     
     ax.plot(angles_deg, energies_plot, 'o-', linewidth=2, markersize=8, 
-            label=f'DFT (K={kpts})')
+            label=f'DFT (K={kpts_val})')
     
     if energies_fit is not None:
         angles_fit_deg = angles_fit * 180 / np.pi

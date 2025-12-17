@@ -24,6 +24,17 @@ from pymatgen.core.structure import Structure
 from core.services.mae_service import MAEDirectionGenerator
 from core.domain.calculation import CalculationParameters
 
+# Import MAE utilities
+from mae_utils import (
+    load_processed_structure,
+    extract_hubbard_uj_from_params,
+    extract_convergence_params_from_params,
+    construct_config_filename,
+    find_config_file,
+    read_mae_config_parameters,
+    construct_mae_directory_path
+)
+
 # Default values
 use_fireworks = False
 calculator = 'vasp'
@@ -161,167 +172,56 @@ def main():
     print(f"MAE CURVE CALCULATION - Configuration: {configuration}")
     print(f"{'=' * 70}\n")
     
-    # Load processed structure file (matching approach from 2_analyze_results_refactored.py)
-    # Determine expected cell type from input parameters to find the correct processed file
-    import glob
+    # Load processed structure file using utility function
+    structure_path, pmg_structure, expected_cell_type, cell_type_folder = load_processed_structure(
+        configuration=configuration,
+        standardize_cell=globals().get('standardize_cell', True),
+        use_primitive_cell=globals().get('use_primitive_cell', True),
+        fallback_to_legacy=True,
+        verbose=True
+    )
     
-    # Access standardization parameters from global namespace (matching other MAE scripts)
-    standardize_cell_check = globals().get('standardize_cell', True)
-    use_primitive_cell_check = globals().get('use_primitive_cell', True)
-    
-    # Determine expected cell type for file search
-    if not standardize_cell_check:
-        expected_cell_type = 'original'
-    elif use_primitive_cell_check:
-        expected_cell_type = 'primitive'
-    else:
-        expected_cell_type = 'conventional'
-    
-    # Search for processed file with the specific cell type
-    # Pattern: setting*_{configuration}_{cell_type}.vasp
-    processed_files = glob.glob(f'setting*_{configuration}_{expected_cell_type}.vasp')
-    
-    if processed_files:
-        structure_path = processed_files[0]
-        print(f"Found processed structure: {structure_path}")
-        print(f"  Cell type: {expected_cell_type}")
-    else:
-        # Fallback: try legacy naming patterns
-        print(f"Warning: No processed structure file found matching pattern: setting*_{configuration}_{expected_cell_type}.vasp")
-        print(f"Trying legacy naming patterns...")
-        
-        # Try old "processed" naming (without cell type suffix)
-        legacy_processed = glob.glob(f'*{configuration}_processed.vasp')
-        legacy_standardized = glob.glob(f'*{configuration}_standardized.vasp')
-        
-        if legacy_processed:
-            structure_path = legacy_processed[0]
-            print(f"Using legacy processed file: {structure_path}")
-        elif legacy_standardized:
-            structure_path = legacy_standardized[0]
-            print(f"Using legacy standardized file: {structure_path}")
-        else:
-            print("ERROR: Structure file not found!")
-            print(f"Expected pattern: setting*_{configuration}_{expected_cell_type}.vasp")
-            print(f"  Or legacy: *{configuration}_processed.vasp")
-            print(f"  Or legacy: *{configuration}_standardized.vasp")
-            print("\nPlease run 1_submit_refactored.py first to generate the structure file.")
-            return
-    
-    # Load structure using both ASE and pymatgen
-    try:
-        atoms = read(structure_path)
-        pmg_structure = Structure.from_file(structure_path)
-        print(f"Structure loaded successfully")
-        print(f"  Atoms: {len(atoms)}")
-        print(f"  Formula: {pmg_structure.formula.replace(' ', '')}")
-        print(f"  Reduced formula: {pmg_structure.composition.reduced_formula}")
-    except Exception as e:
-        print(f"ERROR loading structure from {structure_path}: {e}")
+    if structure_path is None:
+        print("\nPlease run 1_submit_refactored.py first to generate the structure file.")
         return
     
-    # Load calculation parameters from config file
-    ncl_magmoms = None
-    cell_type = None  # Will be determined from config or input params
-    processed_formula = None  # Will be read from config or determined from structure
-    ldauu_val = [0.0]
-    ldauj_val = [0.0]
-    kpts_val = None
-    encut_val = None
-    easy_axis = None  # Will be read from config file
-    hard_axis = None  # Will be read from config file
+    # Load with ASE
+    atoms = read(structure_path)
+    print(f"  Atoms: {len(atoms)}")
+    print(f"  Reduced formula: {pmg_structure.composition.reduced_formula}")
     
-    # Get U and J values for config filename (matching 1_submit_refactored.py exactly)
-    ldauu_val = params.get('ldauu', [0.0])
-    ldauj_val = params.get('ldauj', [0.0])
-    ldaul_val = params.get('ldaul', [])
-    
-    # Extract U and J for config filename
-    U = ldauu_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
-    J = ldauj_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
-    
-    # Get kpts and encut for config filename
-    kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
-    encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
-    
-    # Determine cell_type for config filename
-    standardize_cell = globals().get('standardize_cell', True)
-    use_primitive_cell = globals().get('use_primitive_cell', True)
-    
-    if not standardize_cell:
-        cell_type = 'input_cell'
-    elif use_primitive_cell:
-        cell_type = 'primitive_cell'
-    else:
-        cell_type = 'conventional_cell'
-    
-    # Get atom count for config filename
+    # Extract VASP parameters using utility functions
+    U, J = extract_hubbard_uj_from_params(params)
+    kpts_val, encut_val = extract_convergence_params_from_params(params, use_first=True)
     n_atoms = len(atoms)
     
-    # Construct dynamic config filename
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
-    config_file = f'mae_config_{filename_suffix}.txt'
+    # Find and read configuration file using utility functions
+    config_file = find_config_file(
+        configuration=configuration,
+        exact_params={
+            'U': U, 'J': J,
+            'kpts_val': kpts_val,
+            'encut_val': encut_val,
+            'cell_type': cell_type_folder,
+            'n_atoms': n_atoms
+        },
+        verbose=False  # Already printed by find_config_file
+    )
     
-    # Try to find config file if exact match not found
-    if not os.path.exists(config_file):
-        # Try to find any matching config file with wildcard pattern
-        import glob
-        pattern = f'{configuration}_mae_config_*.txt'
-        matching_configs = glob.glob(pattern)
-        if matching_configs:
-            config_file = matching_configs[0]
-            print(f"Using config file: {config_file}")
-        else:
-            print(f"Warning: No config file found matching pattern: {pattern}")
-    
-    if os.path.exists(config_file):
-        print(f"\nReading configuration from: {config_file}")
-        try:
-            with open(config_file, 'r') as f:
-                for line in f:
-                    if 'NCL magmoms:' in line:
-                        # Parse the magmoms - format is a list of tuples
-                        magmoms_str = line.split('NCL magmoms:')[1].strip()
-                        # Use eval to parse the list of tuples
-                        # Format: [(0, 0, m1), (0, 0, m2), ...]
-                        ncl_magmoms = eval(magmoms_str)
-                        print(f"  → Loaded {len(ncl_magmoms)} NCL magnetic moments")
-                    elif 'Cell type:' in line:
-                        cell_type = line.split('Cell type:')[1].strip()
-                        print(f"  → Cell type: {cell_type}")
-                    elif 'Processed formula:' in line:
-                        processed_formula = line.split('Processed formula:')[1].strip()
-                        print(f"  → Processed formula: {processed_formula}")
-                    elif 'LDAUU:' in line:
-                        ldauu_str = line.split('LDAUU:')[1].strip()
-                        ldauu_val = eval(ldauu_str)
-                    elif 'LDAUJ:' in line:
-                        ldauj_str = line.split('LDAUJ:')[1].strip()
-                        ldauj_val = eval(ldauj_str)
-                    elif 'K-points:' in line:
-                        kpts_val = int(line.split('K-points:')[1].strip())
-                    elif 'ENCUT:' in line:
-                        encut_val = int(line.split('ENCUT:')[1].strip())
-                    elif line.startswith('Easy axis:'):
-                        # Parse easy axis: format is "Easy axis: [x, y, z]"
-                        axis_str = line.split('Easy axis:')[1].strip()
-                        # Remove brackets and parse
-                        axis_str = axis_str.strip('[]')
-                        easy_axis = np.array([float(x.strip()) for x in axis_str.split(',')])
-                        print(f"  → Loaded easy axis: {easy_axis}")
-                    elif line.startswith('Hard axis:'):
-                        # Parse hard axis: format is "Hard axis: [x, y, z]"
-                        axis_str = line.split('Hard axis:')[1].strip()
-                        # Remove brackets and parse
-                        axis_str = axis_str.strip('[]')
-                        hard_axis = np.array([float(x.strip()) for x in axis_str.split(',')])
-                        print(f"  → Loaded hard axis: {hard_axis}")
-        except Exception as e:
-            print(f"Warning: Could not parse some parameters from config: {e}")
-            print(f"Will try to use values from input.py if available")
+    # Read configuration parameters using utility function
+    config_params = {}
+    if config_file and os.path.exists(config_file):
+        config_params = read_mae_config_parameters(config_file, verbose=True)
     else:
-        print(f"Warning: Config file {config_file} not found")
+        print(f"Warning: Config file not found")
         print(f"Will try to use values from input.py if available")
+    
+    # Extract parameters from config (with defaults)
+    ncl_magmoms = config_params.get('ncl_magmoms')
+    cell_type = config_params.get('cell_type', cell_type_folder)  # Use cell_type_folder as default
+    processed_formula = config_params.get('processed_formula')
+    easy_axis = config_params.get('easy_axis')
+    hard_axis = config_params.get('hard_axis')
     
     # Fall back to global scope if not loaded from config
     if ncl_magmoms is None:
@@ -402,11 +302,19 @@ def main():
     print(f"  → Generated {len(directions)} directions")
     print(f"  → Angle range: {directions[0].angle:.1f}° to {directions[-1].angle:.1f}°")
     
-    # Create MAE curve calculation directory using EXACT same pattern as 1_submit_refactored.py
-    # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_curve_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
-    calcfold_path = Path(path_to_automag) / 'CalcFold'
-    mae_base_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
-    mae_curve_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
+    # Create MAE curve calculation directory using utility function
+    mae_curve_dir = construct_mae_directory_path(
+        path_to_automag=path_to_automag,
+        formula=processed_formula,
+        calculator=calculator,
+        configuration=configuration,
+        U=U, J=J,
+        kpts_val=kpts_val,
+        encut_val=encut_val,
+        cell_type=cell_type,
+        n_atoms=n_atoms,
+        struct_suffix=struct_suffix
+    )
     mae_curve_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\nCreating MAE curve directory: {mae_curve_dir}")
