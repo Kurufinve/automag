@@ -230,8 +230,11 @@ def main():
     ref_oszicar = reference_path / 'OSZICAR'
     
     if not ref_oszicar.exists():
-        print(f"ERROR: Reference OSZICAR not found: {ref_oszicar}")
-        return
+        reference_path = mae_dir / 'z' 
+        ref_oszicar = reference_path / 'OSZICAR'
+        if not ref_oszicar.exists():
+            print(f"ERROR: Reference OSZICAR not found: {ref_oszicar}")
+            return
     
     oszicar_ref = Oszicar(str(ref_oszicar))
     e_ref = float(oszicar_ref.all_energies[-1][-2])
