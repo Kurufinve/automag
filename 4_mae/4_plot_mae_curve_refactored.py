@@ -246,7 +246,8 @@ def main():
     angles = []
     
     for alpha in np.linspace(0, 2 * np.pi, N_MAE + 1):
-        folder_name = f'K_{kpts}_RtMAE_{np.round((alpha / np.pi) * 180, 2)}'
+        # folder_name = f'K_{kpts}_RtMAE_{np.round((alpha / np.pi) * 180, 2)}'
+        folder_name = f'RtMAE_{np.round((alpha / np.pi) * 180, 2)}'
         folder = mae_dir / folder_name
         
         if not folder.exists():
