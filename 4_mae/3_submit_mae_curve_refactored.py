@@ -195,6 +195,11 @@ def main():
     kpts_val, encut_val = extract_convergence_params_from_params(params, use_first=True)
     n_atoms = len(atoms)
     
+
+    # Extract full LDAUU and LDAUJ arrays for config file writing
+    ldauu_val = params.get('ldauu', [0.0])
+    ldauj_val = params.get('ldauj', [0.0])
+
     # Find and read configuration file using utility functions
     config_file = find_config_file(
         configuration=configuration,
