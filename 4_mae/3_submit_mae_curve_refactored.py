@@ -232,36 +232,34 @@ def main():
     hard_axis = None  # Will be read from config file
     
     # Get U and J values for config filename (matching 1_submit_refactored.py exactly)
-    ldauu_val_temp = params.get('ldauu', [0.0])
-    ldauj_val_temp = params.get('ldauj', [0.0])
-    ldaul_val_temp = params.get('ldaul', [])
+    ldauu_val = params.get('ldauu', [0.0])
+    ldauj_val = params.get('ldauj', [0.0])
+    ldaul_val = params.get('ldaul', [])
     
     # Extract U and J for config filename
-    U_temp = ldauu_val_temp[next(i for i, x in enumerate(ldaul_val_temp) if x > 0)] if ldaul_val_temp else 0.0
-    J_temp = ldauj_val_temp[next(i for i, x in enumerate(ldaul_val_temp) if x > 0)] if ldaul_val_temp else 0.0
+    U = ldauu_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
+    J = ldauj_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
     
     # Get kpts and encut for config filename
-    kpts_val_temp = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
-    encut_val_temp = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
+    kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
+    encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
     
     # Determine cell_type for config filename
-    standardize_cell_temp = globals().get('standardize_cell', True)
-    use_primitive_cell_temp = globals().get('use_primitive_cell', True)
+    standardize_cell = globals().get('standardize_cell', True)
+    use_primitive_cell = globals().get('use_primitive_cell', True)
     
-    if not standardize_cell_temp:
-        cell_type_temp = 'input_cell'
-    elif use_primitive_cell_temp:
-        cell_type_temp = 'primitive_cell'
+    if not standardize_cell:
+        cell_type = 'input_cell'
+    elif use_primitive_cell:
+        cell_type = 'primitive_cell'
     else:
-        cell_type_temp = 'conventional_cell'
+        cell_type = 'conventional_cell'
     
     # Get atom count for config filename
-    n_atoms_temp = len(atoms)
+    n_atoms = len(atoms)
     
     # Construct dynamic config filename
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
-    config_file = f'mae_config_{filename_suffix}.txt'
-    # config_file = f'{configuration}_mae_config_U{U_temp:.1f}_J{J_temp:.1f}_K{kpts_val_temp}_EN{encut_val_temp}_{cell_type_temp}_{n_atoms_temp}atoms.txt'
+    config_file = f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms.txt'
     
     # Try to find config file if exact match not found
     if not os.path.exists(config_file):
@@ -362,47 +360,12 @@ def main():
             print("\nPlease run 2_analyze_results_refactored.py first to determine easy/hard axes.")
             return
     
-    # Get U and J values for directory naming (matching 1_submit_refactored.py exactly)
-    ldauu_val = params.get('ldauu', [0.0])
-    ldauj_val = params.get('ldauj', [0.0])
-    ldaul_val = params.get('ldaul', [])
-    
-    # Extract U and J for magnetic atoms (exactly as in 1_submit_refactored.py)
-    U = ldauu_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
-    J = ldauj_val[next(i for i, x in enumerate(ldaul_val) if x > 0)] if ldaul_val else 0.0
-    
-    # Handle kpts and encut (matching 1_submit_refactored.py exactly)
-    if kpts_val is None:
-        kpts_val = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
-    if encut_val is None:
-        encut_val = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
-    
-    # Determine cell_type if not loaded from config (matching 1_submit_refactored.py exactly)
-    if cell_type is None:
-        # Directly access standardize_cell and use_primitive_cell from global namespace
-        # These are imported from input.py module, not from params dictionary
-        standardize_cell = globals().get('standardize_cell', True)
-        use_primitive_cell = globals().get('use_primitive_cell', True)
-        
-        # Determine cell type for folder naming (matching 1_submit_refactored.py logic)
-        if not standardize_cell:
-            cell_type = 'input_cell'
-        elif use_primitive_cell:
-            cell_type = 'primitive_cell'
-        else:
-            cell_type = 'conventional_cell'
-        print(f"  → Cell type determined from input.py: {cell_type}")
-        print(f"     (standardize_cell={standardize_cell}, use_primitive_cell={use_primitive_cell})")
-    
     # Determine processed formula if not loaded from config
     # Use the actual formula with atom counts, not the reduced formula
     if processed_formula is None:
         # Get formula from structure file - this includes actual atom counts
         processed_formula = pmg_structure.formula.replace(' ', '')
         print(f"  → Processed formula determined from structure: {processed_formula}")
-    
-    # Get atom count from processed structure (matching 1_submit_refactored.py exactly)
-    n_atoms = len(atoms)
     
     print(f"\nCalculation parameters:")
     print(f"  Formula = {processed_formula}")
