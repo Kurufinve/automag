@@ -303,7 +303,7 @@ def main():
     print(f"  → Angle range: {directions[0].angle:.1f}° to {directions[-1].angle:.1f}°")
     
     mae_base_dir = calcfold_path / \
-        f"{formula}{struct_suffix}" / calculator / configuration
+        f"{processed_formula}{struct_suffix}" / calculator / configuration
     # Create MAE curve calculation directory using utility function
     mae_curve_dir = construct_mae_directory_path(
         path_to_automag=path_to_automag,
