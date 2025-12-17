@@ -157,22 +157,9 @@ def main():
     calcfold_path = Path(path_to_automag) / 'CalcFold'
     calcfold_path.mkdir(parents=True, exist_ok=True)
     
-    # Check that easy/hard axes are defined
-    if 'easy_axis' not in globals() or 'hard_axis' not in globals():
-        print("ERROR: easy_axis and hard_axis must be defined in input.py")
-        print("\nRun 2_analyze_results_refactored.py first to find these axes.")
-        print("Then add them to input.py, for example:")
-        print("  easy_axis = np.array([0.0, 0.0, 1.0])")
-        print("  hard_axis = np.array([1.0, 0.0, 0.0])")
-        return
-    
     print(f"\n{'=' * 70}")
     print(f"MAE CURVE CALCULATION - Configuration: {configuration}")
     print(f"{'=' * 70}\n")
-    print(f"Easy axis: {easy_axis}")
-    print(f"Hard axis: {hard_axis}")
-    print(f"Number of points: {N_MAE + 1}")
-    print(f"Full curve mode: {globals().get('get_full_mae_curve', True)}")
     
     # Load processed structure (from 1_submit)
     structure_path = None
@@ -208,6 +195,8 @@ def main():
     ldauj_val = [0.0]
     kpts_val = None
     encut_val = None
+    easy_axis = None  # Will be read from config file
+    hard_axis = None  # Will be read from config file
     
     # Get U and J values for config filename (matching 1_submit_refactored.py exactly)
     ldauu_val_temp = params.get('ldauu', [0.0])
@@ -279,6 +268,20 @@ def main():
                         kpts_val = int(line.split('K-points:')[1].strip())
                     elif 'ENCUT:' in line:
                         encut_val = int(line.split('ENCUT:')[1].strip())
+                    elif line.startswith('Easy axis:'):
+                        # Parse easy axis: format is "Easy axis: [x, y, z]"
+                        axis_str = line.split('Easy axis:')[1].strip()
+                        # Remove brackets and parse
+                        axis_str = axis_str.strip('[]')
+                        easy_axis = np.array([float(x.strip()) for x in axis_str.split(',')])
+                        print(f"  → Loaded easy axis: {easy_axis}")
+                    elif line.startswith('Hard axis:'):
+                        # Parse hard axis: format is "Hard axis: [x, y, z]"
+                        axis_str = line.split('Hard axis:')[1].strip()
+                        # Remove brackets and parse
+                        axis_str = axis_str.strip('[]')
+                        hard_axis = np.array([float(x.strip()) for x in axis_str.split(',')])
+                        print(f"  → Loaded hard axis: {hard_axis}")
         except Exception as e:
             print(f"Warning: Could not parse some parameters from config: {e}")
             print(f"Will try to use values from input.py if available")
@@ -297,6 +300,31 @@ def main():
             print("  1. In the config file (created by 1_submit_refactored.py)")
             print(f"  2. Defined in input.py as: ncl_magmoms = [(0, 0, m1), (0, 0, m2), ...]")
             print("\nPlease run 1_submit_refactored.py first, or define ncl_magmoms manually.")
+            return
+    
+    # Check easy_axis and hard_axis - try config first, then input.py
+    if easy_axis is None:
+        if 'easy_axis' in globals():
+            easy_axis = globals()['easy_axis']
+            print(f"Using easy_axis from input.py: {easy_axis}")
+        else:
+            print("ERROR: easy_axis not found!")
+            print("\neasy_axis should be either:")
+            print("  1. In the config file (created by 2_analyze_results_refactored.py)")
+            print("  2. Defined in input.py as: easy_axis = np.array([x, y, z])")
+            print("\nPlease run 2_analyze_results_refactored.py first to determine easy/hard axes.")
+            return
+    
+    if hard_axis is None:
+        if 'hard_axis' in globals():
+            hard_axis = globals()['hard_axis']
+            print(f"Using hard_axis from input.py: {hard_axis}")
+        else:
+            print("ERROR: hard_axis not found!")
+            print("\nhard_axis should be either:")
+            print("  1. In the config file (created by 2_analyze_results_refactored.py)")
+            print("  2. Defined in input.py as: hard_axis = np.array([x, y, z])")
+            print("\nPlease run 2_analyze_results_refactored.py first to determine easy/hard axes.")
             return
     
     # Get U and J values for directory naming (matching 1_submit_refactored.py exactly)
@@ -348,6 +376,10 @@ def main():
     print(f"  ENCUT = {encut_val} eV")
     print(f"  Cell type = {cell_type}")
     print(f"  Number of atoms = {n_atoms}")
+    
+    print(f"\nMAE axes:")
+    print(f"  Easy axis: {easy_axis}")
+    print(f"  Hard axis: {hard_axis}")
     
     # Generate MAE curve directions
     # Check if user wants full circle or just easy-to-hard segment

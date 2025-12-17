@@ -473,13 +473,41 @@ def main():
     
     print(f"Results saved to: {output_file}")
     
-    # Update input.py with calculated axes
+    # Update configuration file with calculated easy/hard axes
     try:
-        easy_axis_array = np.array([easy_dir.saxis[0], easy_dir.saxis[1], easy_dir.saxis[2]])
-        hard_axis_array = np.array([hard_dir.saxis[0], hard_dir.saxis[1], hard_dir.saxis[2]])
-        update_input_file_with_axes(easy_axis_array, hard_axis_array)
+        # Construct config filename matching the dynamic naming pattern
+        if not standardize_cell:
+            cell_type_config = 'input_cell'
+        elif use_primitive_cell:
+            cell_type_config = 'primitive_cell'
+        else:
+            cell_type_config = 'conventional_cell'
+        
+        config_filename = f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_config}_{n_atoms}atoms.txt'
+        
+        # Check if config file exists
+        if os.path.exists(config_filename):
+            # Read existing config
+            with open(config_filename, 'r') as f:
+                config_lines = f.readlines()
+            
+            # Check if axes already exist and remove them
+            config_lines = [line for line in config_lines if not (line.startswith('Easy axis:') or line.startswith('Hard axis:'))]
+            
+            # Append easy and hard axes
+            config_lines.append(f"Easy axis: [{easy_dir.saxis[0]:.6f}, {easy_dir.saxis[1]:.6f}, {easy_dir.saxis[2]:.6f}]\n")
+            config_lines.append(f"Hard axis: [{hard_dir.saxis[0]:.6f}, {hard_dir.saxis[1]:.6f}, {hard_dir.saxis[2]:.6f}]\n")
+            
+            # Write back to config file
+            with open(config_filename, 'w') as f:
+                f.writelines(config_lines)
+            
+            print(f"\n✓ Updated configuration file with easy/hard axes: {config_filename}")
+        else:
+            print(f"\nWARNING: Configuration file not found: {config_filename}")
+            print(f"Easy/hard axes will need to be manually added to input.py")
     except Exception as e:
-        print(f"\nWARNING: Could not update input.py: {e}")
+        print(f"\nWARNING: Could not update configuration file: {e}")
         print(f"You can manually add the axes from {output_file}")
     
     if len(valid_directions) == expected_points:
