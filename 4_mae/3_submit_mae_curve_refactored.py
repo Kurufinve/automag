@@ -209,7 +209,47 @@ def main():
     kpts_val = None
     encut_val = None
     
-    config_file = f'{configuration}_mae_config.txt'
+    # Get U and J values for config filename (matching 1_submit_refactored.py exactly)
+    ldauu_val_temp = params.get('ldauu', [0.0])
+    ldauj_val_temp = params.get('ldauj', [0.0])
+    ldaul_val_temp = params.get('ldaul', [])
+    
+    # Extract U and J for config filename
+    U_temp = ldauu_val_temp[next(i for i, x in enumerate(ldaul_val_temp) if x > 0)] if ldaul_val_temp else 0.0
+    J_temp = ldauj_val_temp[next(i for i, x in enumerate(ldaul_val_temp) if x > 0)] if ldaul_val_temp else 0.0
+    
+    # Get kpts and encut for config filename
+    kpts_val_temp = params['kpts'] if not isinstance(params['kpts'], list) else params['kpts'][0]
+    encut_val_temp = params['encut'] if not isinstance(params['encut'], list) else params['encut'][0]
+    
+    # Determine cell_type for config filename
+    standardize_cell_temp = globals().get('standardize_cell', True)
+    use_primitive_cell_temp = globals().get('use_primitive_cell', True)
+    
+    if not standardize_cell_temp:
+        cell_type_temp = 'input_cell'
+    elif use_primitive_cell_temp:
+        cell_type_temp = 'primitive_cell'
+    else:
+        cell_type_temp = 'conventional_cell'
+    
+    # Get atom count for config filename
+    n_atoms_temp = len(atoms)
+    
+    # Construct dynamic config filename
+    config_file = f'{configuration}_mae_config_U{U_temp:.1f}_J{J_temp:.1f}_K{kpts_val_temp}_EN{encut_val_temp}_{cell_type_temp}_{n_atoms_temp}atoms.txt'
+    
+    # Try to find config file if exact match not found
+    if not os.path.exists(config_file):
+        # Try to find any matching config file with wildcard pattern
+        import glob
+        pattern = f'{configuration}_mae_config_*.txt'
+        matching_configs = glob.glob(pattern)
+        if matching_configs:
+            config_file = matching_configs[0]
+            print(f"Using config file: {config_file}")
+        else:
+            print(f"Warning: No config file found matching pattern: {pattern}")
     
     if os.path.exists(config_file):
         print(f"\nReading configuration from: {config_file}")

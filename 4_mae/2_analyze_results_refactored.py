@@ -272,7 +272,8 @@ def main():
         print(f"Running from MAE directory: {base_path}")
         
         # Try to read calculation parameters from config file
-        config_files = list(base_path.parent.parent.parent.glob('*_mae_config.txt'))
+        # Use glob to find config files with dynamic naming pattern
+        config_files = list(base_path.parent.parent.parent.glob(f'{configuration}_mae_config_*.txt'))
         if config_files:
             config_file = config_files[0]
             print(f"Reading parameters from: {config_file.name}")

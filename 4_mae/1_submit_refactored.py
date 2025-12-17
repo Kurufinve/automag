@@ -724,8 +724,23 @@ def main():
             print(f"✓ Created {len(calc_dirs)} grid calculation directories")
             print(f"✓ Generated submission script with dependencies")
     
-    # Save configuration info
-    with open(f'{configuration}_mae_config.txt', 'w') as f:
+    # Save configuration info with dynamic filename
+    # Determine cell type for config filename
+    if not standardize_cell:
+        cell_type_folder = 'input_cell'
+    elif use_primitive_cell:
+        cell_type_folder = 'primitive_cell'
+    else:
+        cell_type_folder = 'conventional_cell'
+    
+    # Get first kpts and encut values for config filename (configs are per-parameter set)
+    kpts_val_config = kpts_list[0]
+    encut_val_config = encut_list[0]
+    n_atoms_config = len(processed_structure)
+    
+    config_filename = f'{configuration}_mae_config_U{U:.1f}_J{J:.1f}_K{kpts_val_config}_EN{encut_val_config}_{cell_type_folder}_{n_atoms_config}atoms.txt'
+    
+    with open(config_filename, 'w') as f:
         f.write(f"Configuration: {configuration}\n")
         f.write(f"Original formula: {original_formula}\n")
         f.write(f"Processed formula: {processed_formula}\n")
@@ -748,7 +763,7 @@ def main():
         f.write(f"Encut values: {encut_list}\n")
         f.write(f"U = {U:.1f}, J = {J:.1f}\n")
     
-    print(f"\n✓ Configuration saved to: {configuration}_mae_config.txt")
+    print(f"\n✓ Configuration saved to: {config_filename}")
     print(f"\n{'=' * 70}")
     print("To submit calculations, run the generated script:")
     print(f"  bash <mae_directory>/submit_mae_grid.sh")
