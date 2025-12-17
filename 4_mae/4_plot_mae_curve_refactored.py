@@ -241,26 +241,55 @@ def main():
     
     print(f"Reference energy: {e_ref:.6f} eV")
     
-    # Load MAE curve results
+    # Load MAE curve results from existing RtMAE folders
+    # Find all RtMAE_* folders in the MAE directory
+    import glob
+    import re
+    
+    print(f"\nSearching for RtMAE folders in: {mae_dir}")
+    rtmae_folders = glob.glob(str(mae_dir / 'RtMAE_*'))
+    
+    if not rtmae_folders:
+        print(f"\nERROR: No RtMAE folders found in {mae_dir}")
+        print("Run 3_submit_mae_curve_refactored.py first to create MAE curve calculations.")
+        return
+    
+    # Extract angle from folder name and create list of (angle, folder_path) tuples
+    folder_data = []
+    for folder_path in rtmae_folders:
+        folder_name = Path(folder_path).name
+        # Extract angle using regex: RtMAE_{angle}
+        match = re.match(r'RtMAE_([0-9.]+)', folder_name)
+        if match:
+            angle_deg = float(match.group(1))
+            folder_data.append((angle_deg, Path(folder_path)))
+    
+    # Sort by angle
+    folder_data.sort(key=lambda x: x[0])
+    
+    print(f"Found {len(folder_data)} RtMAE folders:")
+    for angle_deg, folder in folder_data:
+        print(f"  - {folder.name} ({angle_deg}°)")
+    
+    # Load energies from sorted folders
     energies = []
     angles = []
     
-    for alpha in np.linspace(0, 2 * np.pi, N_MAE + 1):
-        # folder_name = f'K_{kpts}_RtMAE_{np.round((alpha / np.pi) * 180, 2)}'
-        folder_name = f'RtMAE_{np.round((alpha / np.pi) * 180, 2)}'
-        folder = mae_dir / folder_name
+    for angle_deg, folder in folder_data:
+        # Convert angle to radians
+        angle_rad = angle_deg * np.pi / 180.0
         
-        if not folder.exists():
-            folder = mae_dir / folder_name / 'singlepoint'
-            if not folder.exists():
-                print(f"Warning: Folder not found: {folder}")
-                continue
-        
+        # Look for OSZICAR in folder or folder/singlepoint
         oszicar_path = folder / 'OSZICAR'
         outcar_path = folder / 'OUTCAR'
         
         if not oszicar_path.exists():
-            print(f"Warning: OSZICAR not found in {folder}")
+            # Try singlepoint subdirectory
+            oszicar_path = folder / 'singlepoint' / 'OSZICAR'
+            outcar_path = folder / 'singlepoint' / 'OUTCAR'
+        
+        if not oszicar_path.exists():
+            print(f"Warning: OSZICAR not found in {folder.name}")
             continue
         
         # Check if calculation completed
@@ -276,10 +305,10 @@ def main():
             oszicar = Oszicar(str(oszicar_path))
             energy = float(oszicar.all_energies[-1][-2])
             energies.append(energy)
-            angles.append(alpha)
-            print(f"α = {np.round((alpha / np.pi) * 180, 2):6.2f}°  E = {energy:.6f} eV")
+            angles.append(angle_rad)
+            print(f"α = {angle_deg:6.1f}°  E = {energy:.6f} eV")
         else:
-            print(f"Warning: Calculation not completed in {folder}")
+            print(f"Warning: Calculation not completed in {folder.name}")
     
     if len(energies) == 0:
         print("\nERROR: No completed MAE curve calculations found!")
