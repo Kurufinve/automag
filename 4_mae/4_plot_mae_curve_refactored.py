@@ -165,7 +165,7 @@ def main():
     volume = original_structure.volume
     
     # Load processed structure using utility function
-    structure_path, processed_structure, expected_cell_type, cell_type_folder = load_processed_structure(
+    structure_path, processed_structure, expected_cell_type, cell_type = load_processed_structure(
         configuration=configuration,
         standardize_cell=globals().get('standardize_cell', True),
         use_primitive_cell=globals().get('use_primitive_cell', True),
@@ -185,7 +185,7 @@ def main():
     
     # Extract parameters using utility functions
     U, J = extract_hubbard_uj_from_params(params)
-    kpts_val, encut_val = extract_convergence_params_from_params(params, use_first=True)
+    kpts, encut = extract_convergence_params_from_params(params, use_first=True)
     
     # Generate comprehensive filename suffix (matching other MAE scripts)
     filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms"
@@ -196,7 +196,7 @@ def main():
     print(f"Formula: {formula}")
     print(f"Volume: {volume:.2f} ų")
     print(f"Number of atoms: {num_atoms}")
-    print(f"U = {U}, J = {J}, ENCUT = {encut_val}, KPTS = {kpts_val}")
+    print(f"U = {U}, J = {J}, ENCUT = {encut}, KPTS = {kpts}")
     
     # Construct MAE directory path using utility function
     mae_dir = construct_mae_directory_path(
@@ -205,9 +205,9 @@ def main():
         calculator=calculator,
         configuration=configuration,
         U=U, J=J,
-        kpts_val=kpts_val,
-        encut_val=encut_val,
-        cell_type=cell_type_folder,
+        kpts=kpts,
+        encut=encut,
+        cell_type=cell_type,
         n_atoms=num_atoms,
         struct_suffix=struct_suffix
     )
@@ -372,7 +372,7 @@ def main():
         mag_props = None
     
     # Create output directory
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_folder}_{num_atoms}atoms"
+    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms"
     output_dir = Path(f'outputs_{filename_suffix}')
     output_dir.mkdir(exist_ok=True)
     
@@ -392,7 +392,7 @@ def main():
     energies_plot = (energies - e_ref) * (eV / (volume * Ang**3)) * 1e-6 / num_atoms
     
     ax.plot(angles_deg, energies_plot, 'o-', linewidth=2, markersize=8, 
-            label=f'DFT (K={kpts_val})')
+            label=f'DFT (K={kpts})')
     
     if energies_fit is not None:
         angles_fit_deg = angles_fit * 180 / np.pi

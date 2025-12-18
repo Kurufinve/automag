@@ -30,9 +30,9 @@ def get_cell_type_from_params(standardize_cell: bool = True,
         use_primitive_cell: Whether to use primitive cell (only if standardize_cell=True)
     
     Returns:
-        Tuple of (expected_cell_type, cell_type_folder):
+        Tuple of (expected_cell_type, cell_type):
             - expected_cell_type: Used for structure file search ('original', 'primitive', 'conventional')
-            - cell_type_folder: Used for MAE directory naming ('input_cell', 'primitive_cell', 'conventional_cell')
+            - cell_type: Used for MAE directory naming ('input_cell', 'primitive_cell', 'conventional_cell')
     
     Examples:
         >>> get_cell_type_from_params(False, False)
@@ -44,15 +44,15 @@ def get_cell_type_from_params(standardize_cell: bool = True,
     """
     if not standardize_cell:
         expected_cell_type = 'original'
-        cell_type_folder = 'input_cell'
+        cell_type = 'input_cell'
     elif use_primitive_cell:
         expected_cell_type = 'primitive'
-        cell_type_folder = 'primitive_cell'
+        cell_type = 'primitive_cell'
     else:
         expected_cell_type = 'conventional'
-        cell_type_folder = 'conventional_cell'
+        cell_type = 'conventional_cell'
     
-    return expected_cell_type, cell_type_folder
+    return expected_cell_type, cell_type
 
 
 def load_processed_structure(configuration: str,
@@ -74,11 +74,11 @@ def load_processed_structure(configuration: str,
         verbose: If True, print status messages
     
     Returns:
-        Tuple of (structure_path, structure, expected_cell_type, cell_type_folder):
+        Tuple of (structure_path, structure, expected_cell_type, cell_type):
             - structure_path: Path to loaded structure file (None if not found)
             - structure: Loaded pymatgen Structure object (None if not found)
             - expected_cell_type: Cell type identifier for file search
-            - cell_type_folder: Cell type identifier for directory naming
+            - cell_type: Cell type identifier for directory naming
     
     Examples:
         >>> path, struct, exp_type, folder_type = load_processed_structure('fm1')
@@ -89,7 +89,7 @@ def load_processed_structure(configuration: str,
           Cell type: original
     """
     # Determine cell types
-    expected_cell_type, cell_type_folder = get_cell_type_from_params(standardize_cell, use_primitive_cell)
+    expected_cell_type, cell_type = get_cell_type_from_params(standardize_cell, use_primitive_cell)
     
     # Search for processed file with the specific cell type
     # Pattern: setting*_{configuration}_{cell_type}.vasp
@@ -102,11 +102,11 @@ def load_processed_structure(configuration: str,
             if verbose:
                 print(f"Found processed structure: {structure_path}")
                 print(f"  Cell type: {expected_cell_type}")
-            return structure_path, structure, expected_cell_type, cell_type_folder
+            return structure_path, structure, expected_cell_type, cell_type
         except Exception as e:
             if verbose:
                 print(f"Warning: Could not load structure from {structure_path}: {e}")
-            return None, None, expected_cell_type, cell_type_folder
+            return None, None, expected_cell_type, cell_type
     
     if fallback_to_legacy:
         # Fallback: try legacy naming patterns
@@ -124,11 +124,11 @@ def load_processed_structure(configuration: str,
                 structure = Structure.from_file(structure_path)
                 if verbose:
                     print(f"Using legacy processed file: {structure_path}")
-                return structure_path, structure, expected_cell_type, cell_type_folder
+                return structure_path, structure, expected_cell_type, cell_type
             except Exception as e:
                 if verbose:
                     print(f"Warning: Could not load structure from {structure_path}: {e}")
-                return None, None, expected_cell_type, cell_type_folder
+                return None, None, expected_cell_type, cell_type
         
         elif legacy_standardized:
             structure_path = legacy_standardized[0]
@@ -136,11 +136,11 @@ def load_processed_structure(configuration: str,
                 structure = Structure.from_file(structure_path)
                 if verbose:
                     print(f"Using legacy standardized file: {structure_path}")
-                return structure_path, structure, expected_cell_type, cell_type_folder
+                return structure_path, structure, expected_cell_type, cell_type
             except Exception as e:
                 if verbose:
                     print(f"Warning: Could not load structure from {structure_path}: {e}")
-                return None, None, expected_cell_type, cell_type_folder
+                return None, None, expected_cell_type, cell_type
     
     # Not found
     if verbose:
@@ -150,7 +150,7 @@ def load_processed_structure(configuration: str,
             print(f"  Or legacy: *{configuration}_processed.vasp")
             print(f"  Or legacy: *{configuration}_standardized.vasp")
     
-    return None, None, expected_cell_type, cell_type_folder
+    return None, None, expected_cell_type, cell_type
 
 
 def extract_hubbard_uj_from_params(params: Dict[str, Any]) -> Tuple[float, float]:
