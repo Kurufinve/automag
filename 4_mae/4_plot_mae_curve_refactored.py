@@ -205,8 +205,8 @@ def main():
         calculator=calculator,
         configuration=configuration,
         U=U, J=J,
-        kpts=kpts,
-        encut=encut,
+        kpts_val=kpts,
+        encut_val=encut,
         cell_type=cell_type,
         n_atoms=num_atoms,
         struct_suffix=struct_suffix
