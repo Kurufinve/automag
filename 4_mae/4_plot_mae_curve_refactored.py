@@ -30,11 +30,13 @@ from core.services.mae_service import (
 )
 
 # Import MAE utilities
+# Import MAE utilities
 from mae_utils import (
     load_processed_structure,
     extract_hubbard_uj_from_params,
     extract_convergence_params_from_params,
-    construct_mae_directory_path
+    construct_mae_directory_path,
+    construct_config_filename
 )
 
 # Physical constants
