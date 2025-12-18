@@ -381,7 +381,7 @@ def main():
         kpts_val=kpts,
         encut_val=encut,
         cell_type=cell_type,
-        n_atoms=n_atoms
+        n_atoms=num_atoms
     )
 
     # Extract filename suffix for output files (remove '_mae_config' prefix and '.txt' extension)
