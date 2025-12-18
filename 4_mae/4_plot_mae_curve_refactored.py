@@ -372,7 +372,20 @@ def main():
         mag_props = None
     
     # Create output directory
-    filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms"
+    # Generate config filename using utility function
+    config_filename = construct_config_filename(
+        configuration=configuration,
+        U=U, J=J,
+        kpts_val=kpts,
+        encut_val=encut,
+        cell_type=cell_type,
+        n_atoms=n_atoms
+    )
+
+    # Extract filename suffix for output files (remove '_mae_config' prefix and '.txt' extension)
+    filename_suffix = config_filename.replace(
+        '_mae_config', '').replace('.txt', '')
+    # filename_suffix = f"{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}_{cell_type}_{num_atoms}atoms"
     output_dir = Path(f'outputs_{filename_suffix}')
     output_dir.mkdir(exist_ok=True)
     
