@@ -18,6 +18,7 @@ from ase.calculators.vasp import Vasp
 from pymatgen.core.periodic_table import Element
 
 from pymatgen.io.vasp.outputs import Oszicar
+from pymatgen.core.structure import Structure
 
 
 # from common.utilities import atoms_to_encode #, VaspCalculationTask, WriteOutputTask, WriteChargesTask
@@ -30,7 +31,7 @@ class SubmitManual(object):
                  name: str = None, dummy_atom: str = None, dummy_position: int = None, 
                  calculator: str = 'vasp', jobheader: str = '#!/bin/bash', calculator_command: str = None, 
                  environment_activate: str = None, environment_deactivate: str = None, 
-                 parallel_over_configurations = True):
+                 parallel_over_configurations = True, cell_type: str = 'input_cell'):
         if mode == 'encut':
             assert encut_values is not None
             assert sigma_values is None
@@ -111,7 +112,8 @@ class SubmitManual(object):
         self.write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_magmoms_script_name}')
 
         self.write_output_script_name = 'write_output.py'
-        self.write_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_output_script_name}')        
+        self.write_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_output_script_name}')
+        self.cell_type = cell_type        
 
     def submit(self):
         params = copy(self.fix_params)
@@ -119,11 +121,18 @@ class SubmitManual(object):
 
             self.atoms = read(self.poscar_file)
             calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}")
+            
+            # Get both formula and reduced formula
+            pmg_structure = Structure.from_file(self.poscar_file)
+            formula = self.atoms.get_chemical_formula(mode='metal')
+            reduced_formula = pmg_structure.composition.reduced_formula.replace(' ', '')
+            
+            # New naming pattern: {reduced_formula}{struct_suffix}/{formula}_{cell_type}
+            compound_dir = os.path.join(calcfold, f"{reduced_formula}{self.struct_suffix}", f"{formula}_{self.cell_type}")
             
             # creating compound_dir if it does not exist
             try:
-                os.mkdir(compound_dir)
+                os.makedirs(compound_dir, exist_ok=True)
             except:
                 pass
 
@@ -197,7 +206,14 @@ class SubmitManual(object):
         else:
             self.atoms = read(self.poscar_file)
             calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-            compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}")
+            
+            # Get both formula and reduced formula
+            pmg_structure = Structure.from_file(self.poscar_file)
+            formula = self.atoms.get_chemical_formula(mode='metal')
+            reduced_formula = pmg_structure.composition.reduced_formula.replace(' ', '')
+            
+            # New naming pattern: {reduced_formula}{struct_suffix}/{formula}_{cell_type}/{calculator}
+            compound_dir = os.path.join(calcfold, f"{reduced_formula}{self.struct_suffix}", f"{formula}_{self.cell_type}")
             state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
 
         try:

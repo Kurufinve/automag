@@ -561,12 +561,15 @@ def main():
             else:
                 cell_type_folder = 'conventional_cell'
             
-            # Get atom count from processed structure
+    # Get atom count from processed structure
             n_atoms = len(processed_structure)
             
-            # Create MAE calculation directory using processed structure formula
+            # Get reduced formula for new directory pattern
+            reduced_formula = processed_structure.composition.reduced_formula.replace(' ', '')
+            
+            # Create MAE calculation directory using new pattern
             calcfold_path = Path(path_to_automag) / 'CalcFold'
-            mae_base_dir = calcfold_path / f"{processed_formula}{struct_suffix}" / calculator / configuration
+            mae_base_dir = calcfold_path / f"{reduced_formula}{struct_suffix}" / f"{processed_formula}_{cell_type_folder}" / calculator / configuration
             mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type_folder}_{n_atoms}atoms"
             mae_dir.mkdir(parents=True, exist_ok=True)
             

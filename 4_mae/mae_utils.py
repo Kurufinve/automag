@@ -238,6 +238,7 @@ def extract_convergence_params_from_params(params: Dict[str, Any],
 
 def construct_mae_directory_path(path_to_automag: str,
                                  formula: str,
+                                 reduced_formula: str,
                                  calculator: str,
                                  configuration: str,
                                  U: float,
@@ -251,18 +252,19 @@ def construct_mae_directory_path(path_to_automag: str,
     Construct standardized MAE directory path.
     
     Creates path following the pattern:
-    {AUTOMAG_PATH}/CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
+    {AUTOMAG_PATH}/CalcFold/{reduced_formula}{struct_suffix}/{formula}_{cell_type}/{calculator}/{configuration}/mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms
     
     Args:
         path_to_automag: Base AUTOMAG path
-        formula: Chemical formula (e.g., 'Fe4O6')
+        formula: Chemical formula (e.g., 'Fe12O18')
+        reduced_formula: Reduced chemical formula (e.g., 'Fe2O3')
         calculator: Calculator type (e.g., 'vasp')
         configuration: Magnetic configuration (e.g., 'fm1')
         U: Hubbard U value
         J: Hubbard J value
         kpts_val: K-points value
         encut_val: ENCUT value
-        cell_type: Cell type folder name (e.g., 'primitive_cell')
+        cell_type: Cell type folder name (e.g., 'primitive_cell', 'input_cell', 'conventional_cell', 'supercell')
         n_atoms: Number of atoms
         struct_suffix: Optional structure suffix
     
@@ -270,12 +272,12 @@ def construct_mae_directory_path(path_to_automag: str,
         Path object for MAE directory
     
     Examples:
-        >>> construct_mae_directory_path('/home/user/automag', 'Fe4O6', 'vasp', 'fm1', 
+        >>> construct_mae_directory_path('/home/user/automag', 'Fe12O18', 'Fe2O3', 'vasp', 'fm1', 
         ...                              5.2, 0.0, 20, 830, 'primitive_cell', 10)
-        PosixPath('/home/user/automag/CalcFold/Fe4O6/vasp/fm1/mae_U5.2_J0.0_K20_EN830_primitive_cell_10atoms')
+        PosixPath('/home/user/automag/CalcFold/Fe2O3/Fe12O18_primitive_cell/vasp/fm1/mae_U5.2_J0.0_K20_EN830_primitive_cell_10atoms')
     """
     calcfold_path = Path(path_to_automag) / 'CalcFold'
-    mae_base_dir = calcfold_path / f"{formula}{struct_suffix}" / calculator / configuration
+    mae_base_dir = calcfold_path / f"{reduced_formula}{struct_suffix}" / f"{formula}_{cell_type}" / calculator / configuration
     mae_dir = mae_base_dir / f"mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms"
     
     return mae_dir

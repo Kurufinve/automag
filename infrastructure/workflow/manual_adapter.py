@@ -15,6 +15,7 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from ase import Atoms
 from ase.calculators.vasp import Vasp
+from pymatgen.core.structure import Structure
 
 from core.interfaces.workflow import (
     WorkflowSubmitter,
@@ -39,7 +40,8 @@ class ManualJobSubmitter(WorkflowSubmitter):
                  calculator_command: str = "mpirun vasp_std",
                  environment_activate: str = "",
                  environment_deactivate: str = "",
-                 queue_system: str = "slurm"):
+                 queue_system: str = "slurm",
+                 cell_type: str = "input_cell"):
         """
         Initialize manual job submitter.
         
@@ -59,6 +61,7 @@ class ManualJobSubmitter(WorkflowSubmitter):
         self._env_activate = environment_activate
         self._env_deactivate = environment_deactivate
         self._queue_system = queue_system
+        self._cell_type = cell_type
     
     def submit_single_calculation(self, atoms: Atoms, config: CalculationConfig) -> str:
         """
@@ -71,9 +74,21 @@ class ManualJobSubmitter(WorkflowSubmitter):
         Returns:
             Job directory path
         """
-        # Create work directory
+        # Create work directory with new naming pattern
+        from ase.io import write as ase_write
+        import tempfile
+        
+        # Write atoms to temporary file to get pymatgen structure
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.vasp', delete=False) as tmp:
+            ase_write(tmp.name, atoms, format='vasp')
+            pmg_structure = Structure.from_file(tmp.name)
+        os.unlink(tmp.name)
+        
         formula = atoms.get_chemical_formula(mode='metal')
-        workdir = self._calcfold_path / formula / config.name
+        reduced_formula = pmg_structure.composition.reduced_formula.replace(' ', '')
+        
+        # New naming pattern: {reduced_formula}/{formula}_{cell_type}
+        workdir = self._calcfold_path / reduced_formula / f"{formula}_{self._cell_type}" / config.name
         workdir.mkdir(parents=True, exist_ok=True)
         
         # Set magnetic moments if provided
@@ -103,9 +118,21 @@ class ManualJobSubmitter(WorkflowSubmitter):
         Returns:
             Job directory path
         """
-        # Create work directory
+        # Create work directory with new naming pattern
+        from ase.io import write as ase_write
+        import tempfile
+        
+        # Write atoms to temporary file to get pymatgen structure
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.vasp', delete=False) as tmp:
+            ase_write(tmp.name, atoms, format='vasp')
+            pmg_structure = Structure.from_file(tmp.name)
+        os.unlink(tmp.name)
+        
         formula = atoms.get_chemical_formula(mode='metal')
-        workdir = self._calcfold_path / formula / workflow_name
+        reduced_formula = pmg_structure.composition.reduced_formula.replace(' ', '')
+        
+        # New naming pattern: {reduced_formula}/{formula}_{cell_type}
+        workdir = self._calcfold_path / reduced_formula / f"{formula}_{self._cell_type}" / workflow_name
         workdir.mkdir(parents=True, exist_ok=True)
         
         # Write inputs for each step

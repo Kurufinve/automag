@@ -167,9 +167,22 @@ if magmom is None:
 standardized_structure_name = f'setting{setting:03d}_{configuration}_standardized.vasp'
 
 atoms = read(standardized_structure_name)
+pmg_structure = Structure.from_file(standardized_structure_name)
 
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
-compound_dir = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}")
+formula = atoms.get_chemical_formula(mode='metal')
+reduced_formula = pmg_structure.composition.reduced_formula.replace(' ', '')
+
+# Determine cell type based on structure
+# For legacy compatibility, try to detect from filename or default to 'input_cell'
+cell_type = 'input_cell'  # Default
+if 'primitive' in standardized_structure_name:
+    cell_type = 'primitive_cell'
+elif 'conventional' in standardized_structure_name:
+    cell_type = 'conventional_cell'
+
+# New naming pattern: {reduced_formula}{struct_suffix}/{formula}_{cell_type}/{calculator}/{configuration}
+compound_dir = os.path.join(calcfold, f"{reduced_formula}{struct_suffix}", f"{formula}_{cell_type}")
 state_dir = os.path.join(compound_dir, f'{calculator}/{configuration}')
 
 U = np.round(float(params['ldauu'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)

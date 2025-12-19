@@ -76,12 +76,16 @@ def main():
         )
         submitter = WorkflowSubmitterFactory.create_fireworks_submitter(launchpad_file)
     else:
+        # For convergence tests, use input_cell by default
+        cell_type = 'input_cell'
+        
         submitter = WorkflowSubmitterFactory.create_manual_submitter(
             calcfold_path=calcfold_path,
             jobheader=jobheader,
             calculator_command=calculator_command,
             environment_activate=environment_activate,
-            environment_deactivate=environment_deactivate
+            environment_deactivate=environment_deactivate,
+            cell_type=cell_type
         )
     
     # Create service (Single Responsibility)

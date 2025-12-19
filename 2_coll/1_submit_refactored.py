@@ -253,12 +253,22 @@ def main():
         )
         submitter = WorkflowSubmitterFactory.create_fireworks_submitter(launchpad_file)
     else:
+        # Determine cell_type based on whether structure was standardized
+        if 'standardize_cell' in globals() and standardize_cell:
+            if 'use_primitive_cell' in globals() and use_primitive_cell:
+                cell_type = 'primitive_cell'
+            else:
+                cell_type = 'conventional_cell'
+        else:
+            cell_type = 'input_cell'
+        
         submitter = WorkflowSubmitterFactory.create_manual_submitter(
             calcfold_path=calcfold_path,
             jobheader=jobheader,
             calculator_command=calculator_command,
             environment_activate=environment_activate,
-            environment_deactivate=environment_deactivate
+            environment_deactivate=environment_deactivate,
+            cell_type=cell_type
         )
     
     # Create service

@@ -45,7 +45,8 @@ class WorkflowSubmitterFactory:
         calculator_command: str = "mpirun vasp_std",
         environment_activate: str = "",
         environment_deactivate: str = "",
-        queue_system: str = "slurm"
+        queue_system: str = "slurm",
+        cell_type: str = "input_cell"
     ) -> WorkflowSubmitter:
         """
         Create manual job submission submitter.
@@ -57,6 +58,7 @@ class WorkflowSubmitterFactory:
             environment_activate: Environment activation command
             environment_deactivate: Environment deactivation command
             queue_system: Queue system type
+            cell_type: Cell type for directory naming ('input_cell', 'primitive_cell', 'conventional_cell', 'supercell')
             
         Returns:
             WorkflowSubmitter implementation
@@ -70,7 +72,8 @@ class WorkflowSubmitterFactory:
             calculator_command=calculator_command,
             environment_activate=environment_activate,
             environment_deactivate=environment_deactivate,
-            queue_system=queue_system
+            queue_system=queue_system,
+            cell_type=cell_type
         )
     
     @staticmethod
