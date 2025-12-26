@@ -130,17 +130,39 @@ def calculate_magnetic_properties(mae_ev: float,
     Returns:
         Dictionary of calculated properties
     """
+    # Debug output
+    print(f"\n[DEBUG] calculate_magnetic_properties inputs:")
+    print(f"  MAE: {mae_ev:.6e} eV")
+    print(f"  K1: {k1_mj_m3:.6e} MJ/m³")
+    print(f"  Volume: {volume:.6e} ų")
+    print(f"  Magnetization: {magnetization_bohr:.6e} μB")
+    
     # Convert MAE to SI units (J/m³)
     k1_si = k1_mj_m3 * 1e6  # MJ/m³ to J/m³
+    print(f"  K1 (SI): {k1_si:.6e} J/m³")
     
     # Magnetization in A/m
-    m0_am = magnetization_bohr * (Bh / (Ang**3)) * (1 / volume)
+    # Convert volume from ų to m³
+    volume_m3 = volume * (Ang**3)  # ų to m³
+    print(f"  Volume (m³): {volume_m3:.6e} m³")
+    
+    # Convert magnetization from Bohr magnetons to A/m
+    # Bohr magneton: μB = 9.274 × 10⁻²⁴ J/T = 9.274 × 10⁻²⁴ A·m²
+    # M (A/m) = (Total magnetic moment in μB × μB) / Volume in m³
+    m0_am = magnetization_bohr * Bh / volume_m3  # A/m
+    print(f"  M0: {m0_am:.6e} A/m")
     
     # Maximum energy product (BH)max in kJ/m³
     bh_max = 0.25 * mu0 * (m0_am**2) * 1e-3
     
     # Anisotropy field in Tesla
-    mu0_ha = 2 * k1_si / (Bh * magnetization_bohr)
+    # Formula: Hₐ = 2K₁/M₀, then μ₀Hₐ = μ₀ × Hₐ
+    # where K₁ is in J/m³ and M₀ is in A/m
+    ha_am = 2 * k1_si / m0_am  # Anisotropy field in A/m
+    print(f"  Ha: {ha_am:.6e} A/m")
+    # mu0_ha =ha_am  # Convert to Tesla
+    mu0_ha = mu0 * ha_am  # Convert to Tesla
+    print(f"  μ₀Ha: {mu0_ha:.6e} T")
     
     # Hardness parameter (dimensionless)
     hardness = np.sqrt(k1_si / (mu0 * m0_am**2))
@@ -164,7 +186,6 @@ def main():
     # Load original structure
     original_structure = Structure.from_file(path_to_poscar)
     original_formula = original_structure.formula.replace(' ', '')
-    volume = original_structure.volume
     
     # Load processed structure using utility function
     structure_path, processed_structure, expected_cell_type, cell_type = load_processed_structure(
@@ -175,15 +196,22 @@ def main():
         verbose=True
     )
     
+    # Use the volume from the processed structure if available (the one actually used in calculations)
+    # Otherwise fall back to original structure
     if processed_structure is not None:
         formula = processed_structure.formula.replace(' ', '')
+        reduced_formula = processed_structure.composition.reduced_formula.replace(' ', '')
         num_atoms = len(processed_structure)
+        volume = processed_structure.volume  # Use volume of structure actually calculated
         if formula != original_formula:
             print(f"Original formula: {original_formula}")
+            print(f"Using processed structure with volume: {volume:.2f} ų")
     else:
         print(f"Using original structure")
         formula = original_formula
+        reduced_formula = original_structure.composition.reduced_formula.replace(' ', '')
         num_atoms = len(original_structure)
+        volume = original_structure.volume
     
     # Extract parameters using utility functions
     U, J = extract_hubbard_uj_from_params(params)
@@ -204,6 +232,7 @@ def main():
     mae_dir = construct_mae_directory_path(
         path_to_automag=path_to_automag,
         formula=formula,
+        reduced_formula=reduced_formula,
         calculator=calculator,
         configuration=configuration,
         U=U, J=J,
@@ -337,6 +366,12 @@ def main():
         print(f"K1 = {k1:.6f} MJ/m³")
         print(f"K2 = {k2:.6f} MJ/m³")
         
+        # If K1 from fit is too small or negative, use MAE-based estimate instead
+        if k1 <= 0 or abs(k1) < 1e-6:
+            print(f"Warning: Fitted K1 is too small or negative ({k1:.6e}). Using MAE-based estimate.")
+            k1 = mae_mj_m3_total  # Use total MAE as K1 estimate
+            print(f"Using K1 (from MAE) = {k1:.6f} MJ/m³")
+        
         # Calculate fitted curve
         angles_fit = np.linspace(0, 2 * np.pi, 100)
         energies_fit = mae_function(angles_fit, k1, k2, c)
@@ -347,6 +382,7 @@ def main():
         k2 = 0.0
         energies_fit = None
         angles_fit = None
+        print(f"Using K1 (from MAE) = {k1:.6f} MJ/m³")
     
     # Extract magnetization
     try:

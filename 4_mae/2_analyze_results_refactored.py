@@ -169,12 +169,14 @@ def main():
     
     if processed_structure is not None:
         processed_formula = processed_structure.formula.replace(' ', '')
+        reduced_formula = processed_structure.composition.reduced_formula.replace(' ', '')
         if processed_formula != original_formula:
             print(f"Original formula: {original_formula}")
         formula = processed_formula  # Use processed formula
     else:
         print(f"Using original formula: {original_formula}")
         formula = original_formula
+        reduced_formula = structure.composition.reduced_formula.replace(' ', '')
     
     print(f"\n{'=' * 70}")
     print(f"MAE ANALYSIS FOR {formula} - Configuration: {configuration}")
@@ -223,6 +225,7 @@ def main():
             mae_dir = construct_mae_directory_path(
                 path_to_automag=path_to_automag,
                 formula=formula,
+                reduced_formula=reduced_formula,
                 calculator=calculator,
                 configuration=configuration,
                 U=U, J=J,
