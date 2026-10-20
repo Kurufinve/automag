@@ -8,7 +8,9 @@ Script which submits calculation for MAE (magnetocrystalline anisotropy energy) 
 """
 
 # default values for some input variables
-use_fireworks = True
+# MAE grid/curve submission always goes through the manual submitter (matching
+# MAE.py); the fireworks path has no MAE implementation, so default to False.
+use_fireworks = False
 calculator = 'vasp'
 jobheader = """#!/bin/bash""" 
 calculator_command = "mpirun vasp_std"
@@ -46,7 +48,6 @@ import shutil
 from itertools import product
 from pymatgen.io.vasp import Poscar
 from pymatgen.core.structure import Structure
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from datetime import datetime
 import spglib
 
@@ -55,22 +56,9 @@ if use_fireworks:
 else:
     from common.SubmitManual import SubmitManual
 
-
-def magnetization(fileOutCar):
-    Mag = 'Nan'
-    with open(fileOutCar) as file:#open("./z/OUTCAR") as file:
-        for line in file:
-            if "General timing and accounting informations for this job:" in line:  
-                with open("./z/OSZICAR") as file:
-                    for line in file:
-                        if 'mag=' in line:
-                            head, sep, tail = line.partition('mag=')
-                            Mag = [float(j) for j in re.findall(r"[-+]?\d*\.?\d+|\d+", tail)]
-                M0 = np.sqrt((Mag[0]**2)+(Mag[1]**2)+(Mag[2]**2))
-                #print('total magnetization:', np.sqrt((Mag[0]**2)+(Mag[1]**2)+(Mag[2]**2)))
-    return M0
-
-
+# Shared helpers (same ones used by the refactored MAE scripts) so that the
+# configuration lookup, magmom mapping and cell selection stay in one place.
+from mae_utils import load_collinear_configuration, process_structure
 
 
 # full path to poscar file
@@ -79,83 +67,31 @@ path_to_automag = os.environ.get('AUTOMAG_PATH')
 path_to_poscar = path_to_automag + rel_path_to_poscar
 input_structure = Structure.from_file(path_to_poscar)
 
-formula = input_structure.formula.replace(' ','')
-path_to_automag = os.environ.get('AUTOMAG_PATH')
-# path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
-if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
-    if not os.path.isdir(path_to_coll):
-        path_to_coll = path_to_automag + '/2_coll/'
-
-print(f'Path to the results from collinear calculations: {path_to_coll}')
-
-path_to_trials = path_to_coll + f'trials_{formula}/'
-
-
-# finding configuration and settings
-
-setting = 1
-magmom = None
-while os.path.isfile(f'{path_to_trials}/configurations{setting:03d}.txt'):
-    with open(f'{path_to_trials}/configurations{setting:03d}.txt', 'rt') as f:
-        for line in f:
-            values = line.split()
-            if values[0] == configuration:
-                magmom = [int(item) for item in values[1:]]
-                break
-        if magmom is not None:
-            break
-    setting += 1
-
-if magmom is None:
-    raise IOError(f'configuration {configuration} not found.')
-
-# # get materials from magmom
-# materials = [0 if item >= 0 else 1 for item in magmom]
-
-# create a pymatgen Structure object
-pmg_structure = Structure.from_file(f'{path_to_trials}/setting{setting:03d}.vasp')
-ase_structure = pmg_structure.to_ase_atoms()
-
-# assigning magnetic moments to the atoms
-
-calc_results = f"{ase_structure.get_chemical_formula(mode='metal')}{struct_suffix}_singlepoint_{calculator}.txt"
-
-path_to_calc_results = path_to_automag + '/CalcFold/' + calc_results
-full_magmom = None
-print(f'Reading full magmoms for configuration {configuration} from file {path_to_calc_results}')
-with open(path_to_calc_results, 'rt') as f:
-    lines = f.readlines()
-    i = 0
-    for line in lines:
-        values = line.split()
-        if values[0] == configuration:
-            print(f'Found configuration: {values[0]}')
-            magmoms_str = lines[i+1]
-            break
-        i += 1
-    full_magmom_str = magmoms_str.split('final_magmoms=')[1].strip().strip('[]')
-    number_magmoms = full_magmom_str.split()
-    full_magmom = [float(num) for num in number_magmoms]
-
-if full_magmom is None:
-    raise IOError(f'Magmoms for configuration {configuration} not found.')
-
+formula = input_structure.formula.replace(" ", "")
+# Load the configuration and its final moments from the collinear results.
+structure_path, full_magmom, setting = load_collinear_configuration(
+    path_to_automag=path_to_automag,
+    formula=formula,
+    configuration=configuration,
+    struct_suffix=struct_suffix,
+    calculator=calculator,
+)
 
 print(f'Magnetic moments of all atoms for configuration {configuration}:')
 print(full_magmom)
-pmg_structure.add_site_property("magmom", full_magmom)
 
-standardized_structure = pmg_structure.get_primitive_structure(tolerance=0.2, use_site_props=True)
+# Cell selection and magmom mapping follow the shared options
+# (standardize_cell / use_primitive_cell), exactly as 1_submit_refactored.py.
+standardize_cell = globals().get('standardize_cell', True)
+use_primitive_cell = globals().get('use_primitive_cell', True)
 
-
-standardized_structure_name = f'setting{setting:03d}_{configuration}_standardized.vasp'
-
-standardized_structure.to(filename=standardized_structure_name,fmt='POSCAR')
-standardized_magmom = list(standardized_structure.site_properties['magmom'])
-ncl_magmom = [(0,0,m) for m in standardized_magmom]
-standardized_magmom = ncl_magmom
+standardized_structure_name, standardized_magmom, standardized_structure = process_structure(
+    structure_path,
+    full_magmom,
+    f'setting{setting:03d}_{configuration}_processed.vasp',
+    symmetrize=standardize_cell,
+    to_primitive=use_primitive_cell,
+)
 
 print(f'Magnetic moments of all atoms in standardized cell for configuration {configuration}:')
 print(standardized_magmom)

@@ -29,6 +29,13 @@ from core.services.mae_service import (
 )
 from core.domain.calculation import CalculationParameters
 
+# Shared helpers (single source of truth for configuration lookup and cell
+# processing, also used by 1_submit.py)
+from mae_utils import (
+    load_collinear_configuration,
+    process_structure as _process_structure_shared,
+)
+
 # Default values
 use_fireworks = False
 calculator = 'vasp'
@@ -66,293 +73,38 @@ def load_configuration_from_collinear(path_to_automag: str,
                                      configuration_name: str,
                                      struct_suffix: str = '',
                                      calculator_type: str = 'vasp') -> tuple:
+    """Load a magnetic configuration from the collinear results.
+
+    Thin wrapper around the shared ``mae_utils.load_collinear_configuration``
+    so that every MAE script resolves configurations the same way.
     """
-    Load magnetic configuration from collinear calculations.
-    
-    Returns:
-        Tuple of (structure_path, magmoms, setting_number)
-    """
-    # Find collinear results
-    path_to_coll = Path(path_to_automag) / '2_coll' / f'{formula}{struct_suffix}' / f'{formula}_{calculator_type}'
-    if not path_to_coll.exists():
-        path_to_coll = Path(path_to_automag) / '2_coll' / f'{formula}_{calculator_type}'
-        if not path_to_coll.exists():
-            path_to_coll = Path(path_to_automag) / '2_coll'
-    
-    print(f'Loading configuration from: {path_to_coll}')
-    
-    path_to_trials = path_to_coll / f'trials_{formula}'
-    
-    # Find configuration in trials
-    setting = 1
-    magmom = None
-    
-    while (path_to_trials / f'configurations{setting:03d}.txt').exists():
-        with open(path_to_trials / f'configurations{setting:03d}.txt', 'r') as f:
-            for line in f:
-                values = line.split()
-                if values[0] == configuration_name:
-                    magmom = [int(item) for item in values[1:]]
-                    break
-            if magmom is not None:
-                break
-        setting += 1
-    
-    if magmom is None:
-        raise IOError(f'Configuration {configuration_name} not found in {path_to_trials}')
-    
-    print(f'Found configuration {configuration_name} in setting{setting:03d}')
-    print(f'Initial magmoms: {magmom}')
-    
-    # Load structure
-    structure_path = path_to_trials / f'setting{setting:03d}.vasp'
-    
-    # Load final magnetic moments from calculation results
-    calc_results_file = Path(path_to_automag) / 'CalcFold' / f"{formula}{struct_suffix}_singlepoint_{calculator_type}.txt"
-    
-    full_magmom = None
-    print(f'Reading final magmoms from: {calc_results_file}')
-    
-    with open(calc_results_file, 'r') as f:
-        lines = f.readlines()
-        for i, line in enumerate(lines):
-            values = line.split()
-            if values[0] == configuration_name:
-                print(f'Found configuration: {values[0]}')
-                magmoms_str = lines[i + 1]
-                full_magmom_str = magmoms_str.split('final_magmoms=')[1].strip().strip('[]')
-                number_magmoms = full_magmom_str.split()
-                full_magmom = [float(num) for num in number_magmoms]
-                break
-    
-    if full_magmom is None:
-        raise IOError(f'Final magmoms for {configuration_name} not found')
-    
-    print(f'Final magnetic moments: {full_magmom}')
-    
-    return str(structure_path), full_magmom, setting
+    return load_collinear_configuration(
+        path_to_automag=path_to_automag,
+        formula=formula,
+        configuration=configuration_name,
+        struct_suffix=struct_suffix,
+        calculator=calculator_type,
+    )
 
 
-def process_structure(structure_path: str, 
+def process_structure(structure_path: str,
                      magmoms: list,
                      output_name: str,
                      symmetrize: bool = True,
                      to_primitive: bool = True,
                      symprec: float = 0.1) -> tuple:
-    """
-    Process structure with optional standardization and primitive cell conversion.
-    
-    Args:
-        structure_path: Path to input structure
-        magmoms: Magnetic moments (collinear)
-        output_name: Output file name (will be used as base if cell_type needs to be appended)
-        symmetrize: If True, apply standardization using SpacegroupAnalyzer
-        to_primitive: If True AND symmetrize=True, convert to primitive cell
-        symprec: Symmetry precision for SpacegroupAnalyzer (default: 0.1)
-    
-    Returns:
-        Tuple of (processed_structure_path, ncl_magmoms, processed_structure)
-    """
-    from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-    
-    # Load pymatgen structure
-    pmg_structure = Structure.from_file(structure_path)
-    original_natoms = len(pmg_structure)
-    
-    # Add magnetic moments as site property
-    pmg_structure.add_site_property("magmom", magmoms)
-    
-    # Determine cell type for filename
-    if not symmetrize:
-        cell_type = "original"
-    elif to_primitive:
-        cell_type = "primitive"
-    else:
-        cell_type = "conventional"
-    
-    # Generate dynamic output filename based on cell type
-    # Replace '_processed' suffix with cell type designation
-    if output_name.endswith('_processed.vasp'):
-        # Extract base name and replace with cell-type-specific name
-        base_name = output_name.replace('_processed.vasp', '')
-        dynamic_output_name = f"{base_name}_{cell_type}.vasp"
-    else:
-        # Fallback: append cell type before extension
-        name_parts = output_name.rsplit('.', 1)
-        if len(name_parts) == 2:
-            dynamic_output_name = f"{name_parts[0]}_{cell_type}.{name_parts[1]}"
-        else:
-            dynamic_output_name = f"{output_name}_{cell_type}"
-    
-    print(f"\nStructure Processing:")
-    print(f"  Original structure: {original_natoms} atoms")
-    print(f"  Symmetrize: {symmetrize}")
-    print(f"  Primitive cell: {to_primitive if symmetrize else 'N/A (no standardization)'}")
-    print(f"  Cell type: {cell_type}")
-    
-    if not symmetrize:
-        # Use original structure without modifications
-        processed_structure = pmg_structure
-        print(f"  → Using original cell: {len(processed_structure)} atoms")
-    
-    else:
-        # Apply standardization
-        try:
-            sga = SpacegroupAnalyzer(pmg_structure, symprec=symprec)
-            
-            if to_primitive:
-                # Get primitive cell with symmetry
-                processed_structure = sga.get_primitive_standard_structure()
-                # Transfer magnetic moments to primitive cell
-                # Note: Magmoms are mapped using species-aware nearest neighbor with PBC
-                primitive_magmoms = _map_magmoms_to_transformed_structure(
-                    pmg_structure, processed_structure, magmoms
-                )
-                # Remove existing magmom property if present, then add new one
-                if "magmom" in processed_structure.site_properties:
-                    processed_structure.remove_site_property("magmom")
-                processed_structure.add_site_property("magmom", primitive_magmoms)
-                print(f"  → Symmetrized + Primitive: {original_natoms} → {len(processed_structure)} atoms")
-                print(f"  → Space group: {sga.get_space_group_symbol()}")
-                print(f"  → Mapped {len(primitive_magmoms)} magnetic moments")
-            
-            else:
-                # Get conventional cell with symmetry
-                processed_structure = sga.get_conventional_standard_structure()
-                # Transfer magnetic moments to conventional cell
-                # Note: Magmoms are mapped using species-aware nearest neighbor with PBC
-                conventional_magmoms = _map_magmoms_to_transformed_structure(
-                    pmg_structure, processed_structure, magmoms
-                )
-                # Remove existing magmom property if present, then add new one
-                if "magmom" in processed_structure.site_properties:
-                    processed_structure.remove_site_property("magmom")
-                processed_structure.add_site_property("magmom", conventional_magmoms)
-                print(f"  → Symmetrized (conventional): {original_natoms} → {len(processed_structure)} atoms")
-                print(f"  → Space group: {sga.get_space_group_symbol()}")
-                print(f"  → Mapped {len(conventional_magmoms)} magnetic moments")
-        
-        except Exception as e:
-            print(f"  WARNING: Symmetrization failed: {e}")
-            print(f"  → Falling back to original structure")
-            processed_structure = pmg_structure
-            # Update cell type to 'original' since standardization failed
-            cell_type = "original"
-            # Update filename accordingly
-            if output_name.endswith('_processed.vasp'):
-                base_name = output_name.replace('_processed.vasp', '')
-                dynamic_output_name = f"{base_name}_{cell_type}.vasp"
-            else:
-                name_parts = output_name.rsplit('.', 1)
-                if len(name_parts) == 2:
-                    dynamic_output_name = f"{name_parts[0]}_{cell_type}.{name_parts[1]}"
-                else:
-                    dynamic_output_name = f"{output_name}_{cell_type}"
-    
-    # Save processed structure with dynamic filename
-    processed_structure.to(filename=dynamic_output_name, fmt='POSCAR')
-    
-    # Get magnetic moments from processed structure
-    processed_magmom = list(processed_structure.site_properties['magmom'])
-    
-    # Convert to non-collinear format (0, 0, m)
-    ncl_magmom = [(0, 0, m) for m in processed_magmom]
-    
-    print(f"  → Saved to: {dynamic_output_name}")
-    print(f"  → NCL magmoms: {len(ncl_magmom)} values")
-    
-    return dynamic_output_name, ncl_magmom, processed_structure
+    """Standardize (optionally primitive) and emit NCL magmoms.
 
-
-def _map_magmoms_to_transformed_structure(original: Structure, 
-                                          transformed: Structure,
-                                          original_magmoms: list) -> list:
+    Thin wrapper around the shared ``mae_utils.process_structure``.
     """
-    Map magnetic moments from original structure to transformed structure.
-    
-    This uses a robust approach that accounts for periodic boundary conditions,
-    species matching, and proper distance calculations in the transformed lattice.
-    
-    Strategy:
-    1. For each site in transformed structure, find matching site in original
-    2. Match by species first (element type)
-    3. Use minimum distance with periodic boundary conditions
-    4. Handle edge cases with fallback to nearest neighbor
-    
-    Args:
-        original: Original structure with magnetic moments
-        transformed: Transformed structure (primitive/conventional)
-        original_magmoms: Original magnetic moments
-    
-    Returns:
-        List of magnetic moments for transformed structure
-    """
-    import numpy as np
-    from scipy.spatial.distance import cdist
-    
-    transformed_magmoms = []
-    
-    # For each site in transformed structure, find the matching site in original
-    for i, trans_site in enumerate(transformed.sites):
-        best_match_idx = None
-        min_distance = float('inf')
-        
-        # Get the species of the current site in transformed structure
-        target_species = trans_site.species
-        target_frac = trans_site.frac_coords
-        
-        # Search for matching site in original structure
-        for j, orig_site in enumerate(original.sites):
-            # Only consider sites with matching species (same element)
-            if orig_site.species != target_species:
-                continue
-            
-            # Calculate distance with periodic boundary conditions
-            # We need to check the minimum image distance
-            orig_frac = orig_site.frac_coords
-            
-            # Check all periodic images in the [-1, 0, 1] range
-            min_image_dist = float('inf')
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    for dz in [-1, 0, 1]:
-                        # Image of original site
-                        image_frac = orig_frac + np.array([dx, dy, dz])
-                        
-                        # Convert to Cartesian for distance calculation
-                        # Use original lattice for consistency
-                        image_cart = original.lattice.get_cartesian_coords(image_frac)
-                        target_cart = original.lattice.get_cartesian_coords(target_frac)
-                        
-                        # Calculate Euclidean distance
-                        dist = np.linalg.norm(image_cart - target_cart)
-                        min_image_dist = min(min_image_dist, dist)
-            
-            # Update best match if this is closer
-            if min_image_dist < min_distance:
-                min_distance = min_image_dist
-                best_match_idx = j
-        
-        # If no match found (shouldn't happen with proper structures), use fallback
-        if best_match_idx is None:
-            # Fallback: find nearest neighbor by fractional coordinates
-            frac_dists = np.linalg.norm(
-                original.frac_coords - target_frac, axis=1
-            )
-            best_match_idx = np.argmin(frac_dists)
-            print(f"  WARNING: No species match for site {i} ({target_species})")
-            print(f"           Using nearest neighbor (site {best_match_idx})")
-        
-        # Assign magnetic moment from the matched original site
-        transformed_magmoms.append(original_magmoms[best_match_idx])
-        
-        # Optional: Print mapping details for debugging (only if distance is significant)
-        if min_distance > 0.5:  # Threshold for significant displacement
-            orig_species = original.sites[best_match_idx].species
-            print(f"  Note: Site {i} ({target_species}) mapped to original site {best_match_idx} ({orig_species})")
-            print(f"        Distance: {min_distance:.4f} Å")
-    
-    return transformed_magmoms
+    return _process_structure_shared(
+        structure_path=structure_path,
+        magmoms=magmoms,
+        output_name=output_name,
+        symmetrize=symmetrize,
+        to_primitive=to_primitive,
+        symprec=symprec,
+    )
 
 
 def generate_submission_script(mae_dir: Path,

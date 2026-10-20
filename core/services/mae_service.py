@@ -466,7 +466,7 @@ class MAEPlotter:
         Args:
             theta_grid: Theta values (Nph+1, Nth+1)
             phi_grid: Phi values (Nph+1, Nth+1)
-            energy_grid: Energy values in eV (Nph+1, Nth+1)
+            energy_grid: Energy values in eV per atom, relative to the reference energy (Nph+1, Nth+1)
             volume: Unit cell volume in Ų
             output_file: Output file name
         """
@@ -477,8 +477,9 @@ class MAEPlotter:
         eV = 1.602176634e-19  # J
         Ang = 1e-10  # m
         
-        # Subtract minimum energy to get relative energies
-        energy_rel_ev = energy_grid - np.min(energy_grid)
+        # The grid is already relative to the reference energy, so do not
+        # re-zero it here (that would discard the reference baseline).
+        energy_rel_ev = energy_grid
         
         # Convert to MJ/m³
         energy_mj_m3 = (energy_rel_ev * eV / (volume * Ang**3)) * 1e-6
@@ -498,14 +499,15 @@ class MAEPlotter:
             phi_deg = phi_grid[i, 0] * 180 / np.pi  # Phi is constant for each row
             energy_slice = energy_mj_m3[i, :]
             
-            # Skip if all zeros (no data)
-            if not np.allclose(energy_slice, 0, atol=1e-10):
-                ax.plot(theta_deg, energy_slice, '-o', 
-                       color=colors[i], 
-                       label=f'φ = {phi_deg:.1f}°',
-                       linewidth=1.5, 
-                       markersize=4,
-                       alpha=0.8)
+            # Skip if the slice has no data (guarded at construction time).
+            # Note: a reference-relative curve legitimately contains 0.0 at the
+            # reference direction, so zeros must not be used as a "no data" marker.
+            ax.plot(theta_deg, energy_slice, '-o', 
+                   color=colors[i], 
+                   label=f'φ = {phi_deg:.1f}°',
+                   linewidth=1.5, 
+                   markersize=4,
+                   alpha=0.8)
         
         ax.set_xlabel('Theta (degrees)', fontsize=14)
         ax.set_ylabel('Energy (MJ/m³)', fontsize=14)

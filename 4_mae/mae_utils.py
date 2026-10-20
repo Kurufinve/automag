@@ -462,3 +462,210 @@ def read_mae_config_parameters(config_file: str,
             print(f"Warning: Could not parse some parameters from config: {e}")
     
     return params
+
+
+def load_collinear_configuration(path_to_automag: str,
+                                 formula: str,
+                                 configuration: str,
+                                 struct_suffix: str = '',
+                                 calculator: str = 'vasp',
+                                 verbose: bool = True) -> Tuple[str, list, int]:
+    """
+    Load a magnetic configuration and its final moments from collinear results.
+
+    Resolves the collinear results directory, finds the setting file that
+    contains ``configuration``, and reads the final magnetic moments from the
+    collinear single-point output.
+
+    Returns:
+        Tuple of (structure_path, final_magmoms, setting_number)
+    """
+    path_to_coll = Path(path_to_automag) / '2_coll' / f'{formula}{struct_suffix}' / f'{formula}_{calculator}'
+    if not path_to_coll.exists():
+        path_to_coll = Path(path_to_automag) / '2_coll' / f'{formula}_{calculator}'
+        if not path_to_coll.exists():
+            path_to_coll = Path(path_to_automag) / '2_coll'
+
+    if verbose:
+        print(f'Loading configuration from: {path_to_coll}')
+
+    path_to_trials = path_to_coll / f'trials_{formula}'
+
+    setting = 1
+    magmom = None
+    while (path_to_trials / f'configurations{setting:03d}.txt').exists():
+        with open(path_to_trials / f'configurations{setting:03d}.txt', 'rt') as f:
+            for line in f:
+                values = line.split()
+                if values and values[0] == configuration:
+                    magmom = [int(item) for item in values[1:]]
+                    break
+            if magmom is not None:
+                break
+        setting += 1
+
+    if magmom is None:
+        raise IOError(f'Configuration {configuration} not found in {path_to_trials}')
+
+    structure_path = path_to_trials / f'setting{setting:03d}.vasp'
+
+    # Read the final magnetic moments from the collinear single-point results.
+    # The CalcFold file is named after the formula passed in by the caller (the
+    # same convention as the rest of automag), not a re-derived one.
+    calc_results_file = Path(path_to_automag) / 'CalcFold' / \
+        f'{formula}{struct_suffix}_singlepoint_{calculator}.txt'
+
+    if verbose:
+        print(f'Reading final magmoms from: {calc_results_file}')
+
+    final_magmoms = None
+    with open(calc_results_file, 'rt') as f:
+        lines = f.readlines()
+    for i, line in enumerate(lines):
+        values = line.split()
+        if values and values[0] == configuration:
+            magmoms_str = lines[i + 1]
+            full_magmom_str = magmoms_str.split('final_magmoms=')[1].strip().strip('[]')
+            final_magmoms = [float(num) for num in full_magmom_str.split()]
+            break
+
+    if final_magmoms is None:
+        raise IOError(f'Final magmoms for {configuration} not found in {calc_results_file}')
+
+    if verbose:
+        print(f'Found configuration {configuration} in setting{setting:03d}')
+
+    return str(structure_path), final_magmoms, setting
+
+
+def _map_magmoms_to_transformed_structure(original: Structure,
+                                          transformed: Structure,
+                                          original_magmoms: list) -> list:
+    """
+    Map magnetic moments from the original structure onto a transformed cell.
+
+    Matches by species first, then by minimum-image distance, so that
+    primitive/conventional conversions keep the correct moment on each site.
+    """
+    transformed_magmoms = []
+
+    for i, trans_site in enumerate(transformed.sites):
+        target_species = trans_site.species
+        target_frac = trans_site.frac_coords
+
+        best_match_idx = None
+        min_distance = float('inf')
+
+        for j, orig_site in enumerate(original.sites):
+            if orig_site.species != target_species:
+                continue
+
+            orig_frac = orig_site.frac_coords
+            min_image_dist = float('inf')
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        image_frac = orig_frac + np.array([dx, dy, dz])
+                        image_cart = original.lattice.get_cartesian_coords(image_frac)
+                        target_cart = original.lattice.get_cartesian_coords(target_frac)
+                        min_image_dist = min(
+                            min_image_dist, np.linalg.norm(image_cart - target_cart)
+                        )
+
+            if min_image_dist < min_distance:
+                min_distance = min_image_dist
+                best_match_idx = j
+
+        if best_match_idx is None:
+            frac_dists = np.linalg.norm(original.frac_coords - target_frac, axis=1)
+            best_match_idx = int(np.argmin(frac_dists))
+            print(f"  WARNING: No species match for site {i} ({target_species}); "
+                  f"using nearest neighbour (site {best_match_idx})")
+
+        transformed_magmoms.append(original_magmoms[best_match_idx])
+
+    return transformed_magmoms
+
+
+def process_structure(structure_path: str,
+                      magmoms: list,
+                      output_name: str,
+                      symmetrize: bool = True,
+                      to_primitive: bool = True,
+                      symprec: float = 0.1,
+                      verbose: bool = True) -> Tuple[str, list, Structure]:
+    """
+    Standardize (optionally to a primitive cell) and emit NCL magnetic moments.
+
+    Cell selection follows the shared ``standardize_cell`` / ``use_primitive_cell``
+    inputs, and magnetic moments are remapped onto the transformed cell.
+
+    Returns:
+        Tuple of (processed_structure_path, ncl_magmoms, processed_structure)
+    """
+    from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+
+    pmg_structure = Structure.from_file(structure_path)
+    original_natoms = len(pmg_structure)
+    pmg_structure.add_site_property("magmom", magmoms)
+
+    if not symmetrize:
+        cell_type = "original"
+    elif to_primitive:
+        cell_type = "primitive"
+    else:
+        cell_type = "conventional"
+
+    def _cell_filename(name: str, cell: str) -> str:
+        if name.endswith('_processed.vasp'):
+            return f"{name.replace('_processed.vasp', '')}_{cell}.vasp"
+        parts = name.rsplit('.', 1)
+        if len(parts) == 2:
+            return f"{parts[0]}_{cell}.{parts[1]}"
+        return f"{name}_{cell}"
+
+    if verbose:
+        print(f"\nStructure Processing:")
+        print(f"  Original structure: {original_natoms} atoms")
+        print(f"  Symmetrize: {symmetrize}")
+        print(f"  Primitive cell: {to_primitive if symmetrize else 'N/A (no standardization)'}")
+        print(f"  Cell type: {cell_type}")
+
+    if not symmetrize:
+        processed_structure = pmg_structure
+    else:
+        try:
+            sga = SpacegroupAnalyzer(pmg_structure, symprec=symprec)
+            if to_primitive:
+                processed_structure = sga.get_primitive_standard_structure()
+            else:
+                processed_structure = sga.get_conventional_standard_structure()
+
+            mapped_magmoms = _map_magmoms_to_transformed_structure(
+                pmg_structure, processed_structure, magmoms
+            )
+            if "magmom" in processed_structure.site_properties:
+                processed_structure.remove_site_property("magmom")
+            processed_structure.add_site_property("magmom", mapped_magmoms)
+
+            if verbose:
+                print(f"  → {original_natoms} → {len(processed_structure)} atoms "
+                      f"(space group {sga.get_space_group_symbol()})")
+        except Exception as e:
+            if verbose:
+                print(f"  WARNING: Symmetrization failed: {e}")
+                print(f"  → Falling back to original structure")
+            processed_structure = pmg_structure
+            cell_type = "original"
+
+    dynamic_output_name = _cell_filename(output_name, cell_type)
+    processed_structure.to(filename=dynamic_output_name, fmt='POSCAR')
+
+    processed_magmom = list(processed_structure.site_properties['magmom'])
+    ncl_magmom = [(0, 0, m) for m in processed_magmom]
+
+    if verbose:
+        print(f"  → Saved to: {dynamic_output_name}")
+        print(f"  → NCL magmoms: {len(ncl_magmom)} values")
+
+    return dynamic_output_name, ncl_magmom, processed_structure

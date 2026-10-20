@@ -156,7 +156,6 @@ def main():
     # Load structure to get formula
     structure = Structure.from_file(path_to_poscar)
     original_formula = structure.formula.replace(' ', '')
-    volume = structure.volume
     
     # Load processed structure using utility function
     structure_path, processed_structure, expected_cell_type, cell_type_folder = load_processed_structure(
@@ -173,10 +172,22 @@ def main():
         if processed_formula != original_formula:
             print(f"Original formula: {original_formula}")
         formula = processed_formula  # Use processed formula
+        # The MAE energies are evaluated for the cell that was actually
+        # calculated (processed/standardized/primitive), so the volume and
+        # atom count used for any per-volume or per-atom conversion MUST come
+        # from that same cell. Using the original geometry here would mix
+        # cells and give an inconsistent MAE (and disagree with script 4).
+        volume = processed_structure.volume
+        n_atoms = len(processed_structure)
+        print(f"Volume (processed cell): {volume:.2f} ų, atoms: {n_atoms}")
     else:
         print(f"Using original formula: {original_formula}")
         formula = original_formula
         reduced_formula = structure.composition.reduced_formula.replace(' ', '')
+        volume = structure.volume
+        n_atoms = len(structure)
+        print(f"WARNING: processed structure not found, falling back to original "
+              f"geometry (volume {volume:.2f} ų, atoms: {n_atoms})")
     
     print(f"\n{'=' * 70}")
     print(f"MAE ANALYSIS FOR {formula} - Configuration: {configuration}")
@@ -192,7 +203,6 @@ def main():
     kpts_val = None
     encut_val = None
     cell_type = 'unknown_cell'
-    n_atoms = len(structure)  # Default to original structure
     
     # Determine the base path for MAE calculations
     # The script can be run from:
@@ -212,14 +222,6 @@ def main():
             
             # Use cell_type_folder from earlier load_processed_structure call
             cell_type = cell_type_folder
-            
-            # Get atom count from processed structure if available
-            if processed_structure is not None:
-                n_atoms = len(processed_structure)
-                print(f"Using processed structure atom count: {n_atoms}")
-            else:
-                n_atoms = len(structure)
-                print(f"Using original structure atom count: {n_atoms}")
             
             # Construct expected path using utility function
             mae_dir = construct_mae_directory_path(
@@ -255,8 +257,16 @@ def main():
         print(f"Running from MAE directory: {base_path}")
         
         # Try to read calculation parameters from config file
-        # Use glob to find config files with dynamic naming pattern
-        config_files = list(base_path.parent.parent.parent.glob(f'{configuration}_mae_config_*.txt'))
+        # Use glob to find config files with dynamic naming pattern.
+        # Script 1 writes 'mae_config_{configuration}_...txt', so keep the
+        # pattern consistent with mae_utils.construct_config_filename().
+        search_dirs = [base_path, base_path.parent, base_path.parent.parent,
+                       base_path.parent.parent.parent, Path.cwd()]
+        config_files = []
+        for search_dir in search_dirs:
+            config_files = list(search_dir.glob(f'mae_config_{configuration}*.txt'))
+            if config_files:
+                break
         if config_files:
             config_file = config_files[0]
             print(f"Reading parameters from: {config_file.name}")
@@ -301,11 +311,6 @@ def main():
                     kpts_val = int(match.group(3))
                     encut_val = int(match.group(4))
                     print(f"Extracted from directory name (legacy): U={U}, J={J}, K={kpts_val}, EN={encut_val}")
-                    # Try to get n_atoms from processed structure
-                    if processed_structure is not None:
-                        n_atoms = len(processed_structure)
-                    else:
-                        n_atoms = len(structure)
     
     # Load results using dedicated loader (SRP)
     loader = MAEResultsLoader(base_path)
@@ -396,7 +401,8 @@ def main():
     print(f"MAE:")
     print(f"  {mae_ev:.6f} eV")
     print(f"  {mae_ev * 1000:.3f} meV")
-    print(f"  {mae_mj_m3:.3f} MJ/m³")
+    print(f"  {mae_mj_m3:.3f} MJ/m³ (per cell volume {volume:.2f} ų)")
+    print(f"  {mae_mj_m3 / n_atoms:.3f} MJ/m³ (per atom, {n_atoms} atoms)")
     print(f"{'=' * 70}\n")
     
     # Create output directory using the filename suffix
@@ -406,7 +412,9 @@ def main():
     # Reshape for plotting if we have complete grid
     expected_points = (Nth + 1) * (Nph + 1)
     if len(valid_directions) == expected_points:
-        # Create grid for plotting
+        # Create grid for plotting.
+        # As in MAE.py / 2_plot_results.py, the theta-phi curves are plotted
+        # relative to the reference energy and normalised per atom.
         theta_grid = np.zeros((Nph + 1, Nth + 1))
         phi_grid = np.zeros((Nph + 1, Nth + 1))
         energy_grid = np.zeros((Nph + 1, Nth + 1))
@@ -417,7 +425,7 @@ def main():
                 if idx < len(valid_directions):
                     theta_grid[i, j] = valid_directions[idx].theta
                     phi_grid[i, j] = valid_directions[idx].phi
-                    energy_grid[i, j] = energies[idx] - np.min(energies)
+                    energy_grid[i, j] = (energies[idx] - ref_energy) / n_atoms
                     idx += 1
         
         # Plot using dedicated plotter (SRP)
@@ -450,7 +458,9 @@ def main():
         f.write(f"  Hubbard J: {J:.1f} eV\n")
         f.write(f"  K-points: {kpts_val}\n")
         f.write(f"  Energy cutoff: {encut_val} eV\n")
-        f.write(f"  Cell type: {cell_type}\n\n")
+        f.write(f"  Cell type: {cell_type}\n")
+        f.write(f"  Volume (calculated cell): {volume:.4f} ų\n")
+        f.write(f"  Number of atoms in cell: {n_atoms}\n\n")
         f.write(f"Easy axis:\n")
         f.write(f"  Theta: {easy_dir.theta * 180 / np.pi:.2f}°\n")
         f.write(f"  Phi:   {easy_dir.phi * 180 / np.pi:.2f}°\n")
@@ -464,7 +474,8 @@ def main():
         f.write(f"MAE:\n")
         f.write(f"  {mae_ev:.6f} eV\n")
         f.write(f"  {mae_ev * 1000:.3f} meV\n")
-        f.write(f"  {mae_mj_m3:.3f} MJ/m³\n\n")
+        f.write(f"  {mae_mj_m3:.3f} MJ/m³ (per cell volume)\n")
+        f.write(f"  {mae_mj_m3 / n_atoms:.3f} MJ/m³ (per atom)\n\n")
         f.write(f"For MAE curve calculation, use:\n")
         f.write(f"  easy_axis = np.array([{easy_dir.saxis[0]:.3f}, {easy_dir.saxis[1]:.3f}, {easy_dir.saxis[2]:.3f}])\n")
         f.write(f"  hard_axis = np.array([{hard_dir.saxis[0]:.3f}, {hard_dir.saxis[1]:.3f}, {hard_dir.saxis[2]:.3f}])\n")
@@ -473,11 +484,25 @@ def main():
     
     # Update configuration file with calculated easy/hard axes
     try:
-        # Config filename already constructed using utility function earlier
-        # Check if config file exists
-        if os.path.exists(config_filename):
+        # 'config_filename' is a bare filename produced by
+        # mae_utils.construct_config_filename(). Script 1 writes it into the
+        # directory it was launched from, which may not be our cwd, so search
+        # a few likely locations before giving up.
+        config_candidates = [Path(cwd) / config_filename]
+        for search_dir in [Path.cwd(), base_path, base_path.parent,
+                           base_path.parent.parent, base_path.parent.parent.parent]:
+            candidate = search_dir / config_filename
+            if candidate not in config_candidates:
+                config_candidates.append(candidate)
+
+        config_path = next(
+            (c for c in config_candidates if c.exists()),
+            None
+        )
+
+        if config_path is not None:
             # Read existing config
-            with open(config_filename, 'r') as f:
+            with open(config_path, 'r') as f:
                 config_lines = f.readlines()
             
             # Check if axes already exist and remove them
@@ -488,12 +513,13 @@ def main():
             config_lines.append(f"Hard axis: [{hard_dir.saxis[0]:.6f}, {hard_dir.saxis[1]:.6f}, {hard_dir.saxis[2]:.6f}]\n")
             
             # Write back to config file
-            with open(config_filename, 'w') as f:
+            with open(config_path, 'w') as f:
                 f.writelines(config_lines)
             
-            print(f"\n✓ Updated configuration file with easy/hard axes: {config_filename}")
+            print(f"\n✓ Updated configuration file with easy/hard axes: {config_path}")
         else:
             print(f"\nWARNING: Configuration file not found: {config_filename}")
+            print(f"  Searched: {[str(c) for c in config_candidates]}")
             print(f"Easy/hard axes will need to be manually added to input.py")
     except Exception as e:
         print(f"\nWARNING: Could not update configuration file: {e}")

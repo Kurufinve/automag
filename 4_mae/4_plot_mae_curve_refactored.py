@@ -114,30 +114,31 @@ def mae_function(theta, k1, k2, c):
     return k1 * (np.sin(theta)**2) + k2 * (np.sin(theta)**4) + c
 
 
-def calculate_magnetic_properties(mae_ev: float,
-                                  k1_mj_m3: float,
+def calculate_magnetic_properties(k1_mj_m3: float,
                                   volume: float,
-                                  magnetization_bohr: float) -> dict:
+                                  magnetization_bohr: float,
+                                  mae_ev: float = None) -> dict:
     """
     Calculate derived magnetic properties.
     
     Args:
-        mae_ev: MAE in eV
-        k1_mj_m3: K1 anisotropy constant in MJ/m³
+        k1_mj_m3: K1 anisotropy constant in MJ/m³ (per cell)
         volume: Unit cell volume in ų
         magnetization_bohr: Magnetization in Bohr magnetons
+        mae_ev: Total MAE in eV (per cell). MAE.py derives the anisotropy field
+            and hardness from the *total* measured MAE, not from the fitted K1,
+            so pass it here to reproduce the reference values.
         
     Returns:
         Dictionary of calculated properties
     """
     # Debug output
     print(f"\n[DEBUG] calculate_magnetic_properties inputs:")
-    print(f"  MAE: {mae_ev:.6e} eV")
     print(f"  K1: {k1_mj_m3:.6e} MJ/m³")
     print(f"  Volume: {volume:.6e} ų")
     print(f"  Magnetization: {magnetization_bohr:.6e} μB")
     
-    # Convert MAE to SI units (J/m³)
+    # Convert K1 to SI units (J/m³)
     k1_si = k1_mj_m3 * 1e6  # MJ/m³ to J/m³
     print(f"  K1 (SI): {k1_si:.6e} J/m³")
     
@@ -155,17 +156,21 @@ def calculate_magnetic_properties(mae_ev: float,
     # Maximum energy product (BH)max in kJ/m³
     bh_max = 0.25 * mu0 * (m0_am**2) * 1e-3
     
-    # Anisotropy field in Tesla
-    # Formula: Hₐ = 2K₁/M₀, then μ₀Hₐ = μ₀ × Hₐ
-    # where K₁ is in J/m³ and M₀ is in A/m
-    ha_am = 2 * k1_si / m0_am  # Anisotropy field in A/m
-    print(f"  Ha: {ha_am:.6e} A/m")
-    # mu0_ha =ha_am  # Convert to Tesla
-    mu0_ha = mu0 * ha_am  # Convert to Tesla
+    # Anisotropy field, matching MAE.py:
+    #   mu0xHa = 2*(K1*eV)/(Bh*M0)
+    # where MAE.py's K1 is the total MAE in eV and M0 is in Bohr magnetons,
+    # i.e. it is the ratio 2*K1/M0 expressed in Tesla. The fitted K1 from the
+    # sin²/sin⁴ model is used only when an explicit MAE (eV) is not supplied.
+    if mae_ev is not None:
+        k1_for_field_ev = mae_ev
+    else:
+        k1_for_field_ev = k1_si * volume_m3 / eV
+    mu0_ha = 2 * (k1_for_field_ev * eV) / (Bh * magnetization_bohr)  # T
     print(f"  μ₀Ha: {mu0_ha:.6e} T")
     
-    # Hardness parameter (dimensionless)
-    hardness = np.sqrt(k1_si / (mu0 * m0_am**2))
+    # Hardness parameter (dimensionless), also based on the total MAE (eV).
+    # MAE.py: sqrt((K1_eV*eV/(V*Ang**3))/(mu0*M0_A_per_m**2))
+    hardness = np.sqrt(((k1_for_field_ev * eV) / volume_m3) / (mu0 * m0_am**2))
     
     return {
         'M0_MA_per_m': m0_am * 1e-6,  # MA/m
@@ -250,24 +255,40 @@ def main():
     
     print(f"MAE directory: {mae_dir}")
     
-    # Load reference energy
-    reference_path = mae_dir / 'z'
-    ref_oszicar = reference_path / 'OSZICAR'
+    # Reference energies.
+    #
+    # MAE.py deliberately uses *two* references:
+    #   - `z`            : SCF reference for the theta-phi grid (K = K_select)
+    #   - `z_mae_curve`  : SCF reference for the MAE curve  (K = smallest K)
+    # The curve reference can differ from the grid one because it is computed at
+    # a different KSPACING, so substituting `z` for both shifts the curve
+    # vertically. Fall back to `z` only if `z_mae_curve` was never produced.
+    def _read_ref_energy(folder: Path):
+        for candidate in (folder / 'OSZICAR', folder / 'singlepoint' / 'OSZICAR'):
+            if candidate.exists():
+                return float(Oszicar(str(candidate)).all_energies[-1][-2]), candidate
+        return None, None
+
+    e_ref, ref_oszicar = _read_ref_energy(mae_dir / 'z')
+    if e_ref is None:
+        print(f"ERROR: Reference OSZICAR not found under: {mae_dir / 'z'}")
+        return
+    reference_path = ref_oszicar.parent
+    print(f"Grid reference energy (z/):           {e_ref:.6f} eV")
+
+    e_ref_curve, ref_curve_oszicar = _read_ref_energy(mae_dir / 'z_mae_curve')
+    if e_ref_curve is None:
+        print("WARNING: No z_mae_curve/ reference found; using the grid z/ reference.")
+        e_ref_curve, ref_curve_oszicar = e_ref, ref_oszicar
+    else:
+        print(f"MAE curve reference energy (z_mae_curve/): {e_ref_curve:.6f} eV")
+    curve_reference_path = ref_curve_oszicar.parent
     
-    if not ref_oszicar.exists():
-        reference_path = mae_dir / 'z' / 'singlepoint'
-        ref_oszicar = reference_path / 'OSZICAR'
-        if not ref_oszicar.exists():
-            print(f"ERROR: Reference OSZICAR not found: {ref_oszicar}")
-            return
-    
-    oszicar_ref = Oszicar(str(ref_oszicar))
-    e_ref = float(oszicar_ref.all_energies[-1][-2])
-    
-    print(f"Reference energy: {e_ref:.6f} eV")
-    
-    # Load MAE curve results from existing RtMAE folders
-    # Find all RtMAE_* folders in the MAE directory
+    # Load MAE curve results from existing RtMAE folders.
+    # Script 3 tags each folder with its curve mode (RtMAE_full_{angle} or
+    # RtMAE_seg_{angle}) because the easy->hard segment and the full 360° circle
+    # share the same angle values. Only one mode may be plotted at a time; if
+    # several are present we pick the one with the most points and say so.
     import glob
     import re
     
@@ -279,17 +300,33 @@ def main():
         print("Run 3_submit_mae_curve_refactored.py first to create MAE curve calculations.")
         return
     
-    # Extract angle from folder name and create list of (angle, folder_path) tuples
-    folder_data = []
+    # Extract mode and angle from folder name: RtMAE_{mode}_{angle}, with the
+    # untagged legacy form RtMAE_{angle} still accepted.
+    all_folders = []
     for folder_path in rtmae_folders:
         folder_name = Path(folder_path).name
-        # Extract angle using regex: RtMAE_{angle}
-        match = re.match(r'RtMAE_([0-9.]+)', folder_name)
+        match = re.match(r'RtMAE_(full|seg)_([0-9.]+)$', folder_name)
         if match:
-            angle_deg = float(match.group(1))
-            folder_data.append((angle_deg, Path(folder_path)))
+            mode, angle_deg = match.group(1), float(match.group(2))
+        else:
+            match = re.match(r'RtMAE_([0-9.]+)$', folder_name)
+            if not match:
+                continue
+            mode, angle_deg = 'legacy', float(match.group(1))
+        all_folders.append((mode, angle_deg, Path(folder_path)))
     
-    # Sort by angle
+    modes = {}
+    for mode, _, _ in all_folders:
+        modes[mode] = modes.get(mode, 0) + 1
+    if len(modes) > 1:
+        print(f"WARNING: RtMAE folders from multiple curve modes present: {modes}")
+    selected_mode = max(modes, key=modes.get) if modes else None
+    print(f"Using curve mode: {selected_mode} ({modes.get(selected_mode, 0)} folders)")
+
+    # (angle, folder_path) for the selected mode, sorted by angle
+    folder_data = [(angle_deg, folder_path)
+                   for mode, angle_deg, folder_path in all_folders
+                   if mode == selected_mode]
     folder_data.sort(key=lambda x: x[0])
     
     print(f"Found {len(folder_data)} RtMAE folders:")
@@ -346,7 +383,8 @@ def main():
     mae_ev = np.max(energies) - np.min(energies)
     
     # Convert to MJ/m³
-    mae_mj_m3_total = mae_ev * (eV / (volume * Ang**3)) * 1e-6
+    volume_conversion = (eV / (volume * Ang**3)) * 1e-6  # eV -> MJ/m³ for the cell
+    mae_mj_m3_total = mae_ev * volume_conversion
     mae_mj_m3_per_atom = mae_mj_m3_total / num_atoms
     
     print(f"\n{'=' * 70}")
@@ -356,15 +394,24 @@ def main():
     print(f"MAE (per atom):  {mae_mj_m3_per_atom:.6f} MJ/m³")
     print(f"MAE (eV):        {mae_ev:.6f} eV")
     
-    # Fit MAE curve
+    # Energies used for the plot are relative to the MAE-curve reference
+    # (z_mae_curve in MAE.py), keeping a single baseline so the fit curve is
+    # not vertically offset from the data points.
+    energies_rel_mj_m3 = (energies - e_ref_curve) * volume_conversion
+    
+    # Fit MAE curve.
+    # MAE.py fits the sin²/sin⁴ model to the curve shifted so that its minimum
+    # is zero: (E_alpha - min(E_alpha)). Using the reference-energy baseline
+    # instead changes the fitted K1/K2 because the constant `c` then absorbs
+    # the offset.
+    energies_fit_baseline = (energies - np.min(energies)) * volume_conversion
     try:
-        energies_relative = (energies - np.min(energies)) * (eV / (volume * Ang**3)) * 1e-6
-        popt, pcov = curve_fit(mae_function, angles, energies_relative)
+        popt, pcov = curve_fit(mae_function, angles, energies_fit_baseline)
         k1, k2, c = popt
         
-        print(f"\nFitted parameters:")
-        print(f"K1 = {k1:.6f} MJ/m³")
-        print(f"K2 = {k2:.6f} MJ/m³")
+        print(f"\nFitted parameters (baseline: min(E_alpha) = 0):")
+        print(f"K1 = {k1:.6f} MJ/m³ (per cell volume)")
+        print(f"K2 = {k2:.6f} MJ/m³ (per cell volume)")
         
         # If K1 from fit is too small or negative, use MAE-based estimate instead
         if k1 <= 0 or abs(k1) < 1e-6:
@@ -372,9 +419,11 @@ def main():
             k1 = mae_mj_m3_total  # Use total MAE as K1 estimate
             print(f"Using K1 (from MAE) = {k1:.6f} MJ/m³")
         
-        # Calculate fitted curve
+        # Fitted curve, shifted back onto the plotting baseline so that it
+        # overlays the data points.
         angles_fit = np.linspace(0, 2 * np.pi, 100)
-        energies_fit = mae_function(angles_fit, k1, k2, c)
+        offset_mj_m3 = (np.min(energies) - e_ref_curve) * volume_conversion
+        energies_fit = mae_function(angles_fit, k1, k2, c) + offset_mj_m3
         
     except Exception as e:
         print(f"\nWarning: Could not fit MAE curve: {e}")
@@ -384,18 +433,19 @@ def main():
         angles_fit = None
         print(f"Using K1 (from MAE) = {k1:.6f} MJ/m³")
     
-    # Extract magnetization
+    # Extract magnetization from the MAE-curve reference, as MAE.py does.
     try:
-        ref_outcar = reference_path / 'OUTCAR'
-        ref_oszicar = reference_path / 'OSZICAR'
+        ref_outcar = curve_reference_path / 'OUTCAR'
+        ref_oszicar = curve_reference_path / 'OSZICAR'
         magnetization = extract_magnetization(str(ref_outcar), str(ref_oszicar))
         
         print(f"\nMagnetization:")
         print(f"M0 = {magnetization:.4f} μB (Bohr magnetons)")
         
-        # Calculate derived properties
+        # Calculate derived properties. The anisotropy field and hardness use
+        # the *total* MAE in eV, matching MAE.py.
         mag_props = calculate_magnetic_properties(
-            mae_ev, k1, volume, magnetization
+            k1, volume, magnetization, mae_ev=mae_ev
         )
         
         print(f"\nDerived magnetic properties:")
@@ -430,8 +480,9 @@ def main():
     # Save numerical results with comprehensive naming
     np.save(output_dir / f'mae_curve_alpha_{filename_suffix}.npy', angles * 180 / np.pi)
     np.save(output_dir / f'mae_curve_raw_energy_{filename_suffix}.npy', energies)
-    np.save(output_dir / f'mae_curve_energy_per_atom_{filename_suffix}.npy', 
-            (energies - e_ref) * (eV / (volume * Ang**3)) * 1e-6 / num_atoms)
+    np.save(output_dir / f'mae_curve_energy_{filename_suffix}.npy', energies_rel_mj_m3)
+    np.save(output_dir / f'mae_curve_energy_per_atom_{filename_suffix}.npy',
+            energies_rel_mj_m3 / num_atoms)
     
     # Plot MAE curve
     import matplotlib.pyplot as plt
@@ -440,15 +491,17 @@ def main():
     
     # Convert to degrees and MJ/m³ per atom
     angles_deg = angles * 180 / np.pi
-    energies_plot = (energies - e_ref) * (eV / (volume * Ang**3)) * 1e-6 / num_atoms
+    energies_plot = energies_rel_mj_m3 / num_atoms
     
     ax.plot(angles_deg, energies_plot, 'o-', linewidth=2, markersize=8, 
             label=f'DFT (K={kpts})')
     
     if energies_fit is not None:
         angles_fit_deg = angles_fit * 180 / np.pi
+        # Same baseline (relative to reference energy) and same per-atom
+        # normalization as the data points above.
         ax.plot(angles_fit_deg, energies_fit / num_atoms, '--', linewidth=2,
-                label=f'Fit: K₁={k1:.3f}, K₂={k2:.3f} MJ/m³')
+                label=f'Fit: K₁={k1:.3f}, K₂={k2:.3f} MJ/m³ (per cell)')
     
     ax.set_xlabel('Rotation angle α (degrees)', fontsize=14)
     ax.set_ylabel('Energy (MJ/m³ per atom)', fontsize=14)

@@ -14,6 +14,7 @@ Run this after 2_analyze_results_refactored.py to get easy/hard axes.
 
 import os
 import sys
+import shutil
 import numpy as np
 from pathlib import Path
 from ase.io import read
@@ -306,6 +307,11 @@ def main():
         )
     print(f"  → Generated {len(directions)} directions")
     print(f"  → Angle range: {directions[0].angle:.1f}° to {directions[-1].angle:.1f}°")
+
+    # Tag the folder name with the curve mode. The easy->hard segment and the
+    # full 360° circle can both emit e.g. `0.0`, `18.0`, ... so without a tag a
+    # mixed tree would be silently merged by script 4 (which globs RtMAE_*).
+    curve_mode_tag = 'full' if full_curve else 'seg'
     
     mae_base_dir = calcfold_path / \
         f"{processed_formula}{struct_suffix}" / calculator / configuration
@@ -332,7 +338,7 @@ def main():
     
     for direction in directions:
         # Name each folder as RtMAE_{angle} where angle is in degrees
-        dir_name = f"RtMAE_{direction.angle:.1f}"
+        dir_name = f"RtMAE_{curve_mode_tag}_{direction.angle:.1f}"
         calc_dir = mae_curve_dir / dir_name
         calc_dir.mkdir(parents=True, exist_ok=True)
         calc_dirs.append(calc_dir)
@@ -402,11 +408,35 @@ def main():
     
     print(f"  ✓ All input files created")
     
-    # Create symlinks to reference WAVECAR and CHGCAR from MAE grid calculation's z/ folder
-    # Look for the reference 'z' directory from the MAE grid calculation (sibling directory)
-    # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms/z/
+    # Create symlinks to reference WAVECAR and CHGCAR.
+    #
+    # MAE.py uses a dedicated `z_mae_curve` reference (the smallest acceptable
+    # KSPACING) for the curve, distinct from the grid reference `z` used for the
+    # theta-phi grid. Prefer `z_mae_curve` when it exists and fall back to `z`.
+    #
+    # Pattern: CalcFold/{formula}{struct_suffix}/{calculator}/{configuration}/mae_U{U}_J{J}_K{kpts}_EN{encut}_{cell_type}_{n_atoms}atoms/{z|z_mae_curve}/
     mae_grid_dir = mae_base_dir / f'mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms'
-    z_ref_dir = mae_grid_dir / 'z'
+
+    # Ensure the dedicated curve reference exists.
+    # MAE.py creates `z_MAE_curve` by copying the smallest-K grid calculation
+    # (`cp -r K_<Kmin> z_MAE_curve`). The refactored grid run only provides a
+    # single `z/`, so create `z_mae_curve/` from it when it is missing. A user
+    # who wants the exact K-dependence can place their own z_mae_curve/ first;
+    # it is never overwritten here.
+    z_mae_curve_dir = mae_grid_dir / 'z_mae_curve'
+    grid_z_dir = mae_grid_dir / 'z'
+    if not z_mae_curve_dir.exists():
+        if (grid_z_dir / 'WAVECAR').exists() and (grid_z_dir / 'CHGCAR').exists():
+            print(f"\nCreating curve reference: {z_mae_curve_dir}")
+            shutil.copytree(grid_z_dir, z_mae_curve_dir)
+            print(f"  → Copied from {grid_z_dir}")
+        else:
+            print(f"\nWarning: cannot create {z_mae_curve_dir.name}: "
+                  f"no WAVECAR/CHGCAR in {grid_z_dir}")
+
+    z_ref_dir = z_mae_curve_dir
+    if not (z_ref_dir / 'WAVECAR').exists() or not (z_ref_dir / 'CHGCAR').exists():
+        z_ref_dir = grid_z_dir
     
     print(f"\nCreating symlinks to reference files...")
     print(f"  Reference directory: {z_ref_dir}")
@@ -443,11 +473,11 @@ def main():
             print(f"  ✓ All RtMAE directories ready for non-self-consistent calculations")
         else:
             print(f"  Warning: WAVECAR/CHGCAR not found in {z_ref_dir}")
-            print(f"  → Run MAE grid calculation first (1_submit_refactored.py)")
-            print(f"  → Make sure the z/ calculation has completed successfully")
+            print(f"  → Run the MAE grid calculation first (1_submit_refactored.py)")
+            print(f"  → Make sure the z/ (or z_mae_curve/) calculation has completed")
     else:
         print(f"  Warning: Reference directory not found: {z_ref_dir}")
-        print(f"  → Run MAE grid calculation first (1_submit_refactored.py)")
+        print(f"  → Run the MAE grid calculation first (1_submit_refactored.py)")
     
     # Generate submission scripts in the mae_curve_dir (matching 1_submit_refactored.py pattern)
     print(f"\nGenerating submission scripts...")
@@ -497,7 +527,8 @@ def main():
         f.write(f"Cell type: {cell_type}\n")
         f.write(f"Structure file: {structure_path}\n")
         f.write(f"Reference directory: {z_ref_dir if z_ref_dir.exists() else 'Not found'}\n")
-        f.write(f"Directory pattern: mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/RtMAE_{{angle}}\n")
+        f.write(f"Note: script 4 reads the curve reference from z_mae_curve/ if present, else z/\n")
+        f.write(f"Directory pattern: mae_U{U:.1f}_J{J:.1f}_K{kpts_val}_EN{encut_val}_{cell_type}_{n_atoms}atoms/RtMAE_{curve_mode_tag}_{{angle}}\n")
     
     print(f"  → Saved to: {config_output_path}")
     
@@ -515,9 +546,9 @@ def main():
     print(f"        ├── z/  (reference self-consistent calculation)")
     print(f"        ├── PhTh_*/  (grid calculations)")
     print(f"        ├── ...")
-    print(f"        ├── RtMAE_{directions[0].angle:.1f}/  (starting point)")
-    print(f"        ├── RtMAE_{{angle}}/  (...)")
-    print(f"        └── RtMAE_{directions[-1].angle:.1f}/  (ending point)")
+    print(f"        ├── RtMAE_{curve_mode_tag}_{directions[0].angle:.1f}/  (starting point)")
+    print(f"        ├── RtMAE_{curve_mode_tag}_{{angle}}/  (...)")
+    print(f"        └── RtMAE_{curve_mode_tag}_{directions[-1].angle:.1f}/  (ending point)")
     print(f"\nTo submit calculations:")
     print(f"  cd {mae_curve_dir}")
     print(f"  ./submit_mae_curve.sh  # Parallel submission")
