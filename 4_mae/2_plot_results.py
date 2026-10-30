@@ -78,6 +78,48 @@ def Zero_to_one(i):
 def NormedCross(myvec1, myvec2):
     return(np.cross(myvec1, myvec2)/Zero_to_one(np.linalg.norm(np.cross(myvec1, myvec2))))
 
+def fmt_kpts(kpts):
+    """Compact label for a k-point specification (scalar or explicit mesh)."""
+    if isinstance(kpts, (list, tuple)):
+        return 'x'.join(str(k) for k in kpts)
+    return str(kpts)
+
+def load_cell_info():
+    """Read the sidecar JSON written by 1_submit.py (may be absent)."""
+    for setting_number in range(1, 10):
+        name = f'setting{setting_number:03d}_{configuration}_processed.json'
+        if os.path.isfile(name):
+            with open(name, 'rt') as f:
+                return json.load(f)
+    return None
+
+def get_calc_cell(mae_dir, cell_info, path_to_poscar):
+    """Return (volume, n_atoms, formula) of the cell that was calculated.
+
+    All MJ/m^3 and per-atom conversions must use this cell. Using the input
+    geometry instead (which may be a different supercell) silently scales the
+    MAE by the volume/atom ratio of the two cells.
+    """
+    candidates = [
+        os.path.join(mae_dir, 'z', 'singlepoint', 'POSCAR'),
+        os.path.join(mae_dir, 'z', 'POSCAR'),
+    ]
+    if cell_info and cell_info.get('structure_file'):
+        candidates.append(cell_info['structure_file'])
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            struct = Structure.from_file(candidate)
+            return (struct.volume, len(struct),
+                    struct.composition.reduced_formula.replace(' ', ''))
+    struct = Structure.from_file(path_to_poscar)
+    print('WARNING: the calculated cell could not be found; falling back to the '
+          f'input geometry ({path_to_poscar}) for the MJ/m^3 conversion.')
+    return (struct.volume, len(struct),
+            struct.composition.reduced_formula.replace(' ', ''))
+
+# conversion factor: (eV/A^3) -> (MJ/m^3)
+E2MJ = eV/(Ang**3)*(10.0**-6.0)
+
 # take care of the case when lower_cutoff has not been specified
 if 'lower_cutoff' not in globals():
     lower_cutoff = 0
@@ -105,6 +147,8 @@ print(f'Path to the results from collinear calculations: {path_to_coll}')
 
 path_to_trials = path_to_coll + f'trials_{formula}/'
 
+cell_info = load_cell_info()
+
 
 # finding configuration and settings
 
@@ -121,8 +165,13 @@ while os.path.isfile(f'{path_to_trials}/configurations{setting:03d}.txt'):
             break
     setting += 1
 
+if cell_info is not None and cell_info.get('setting'):
+    setting = int(cell_info['setting'])
+
+if magmom is None and cell_info is None:
+    raise IOError(f'configuration {configuration} not found and no processed-cell sidecar file is present.')
 if magmom is None:
-    raise IOError(f'configuration {configuration} not found.')
+    print(f'No 2_coll configuration data for {configuration}: using the cell from the sidecar file.')
 
 # # # get materials from magmom
 # # materials = [0 if item >= 0 else 1 for item in magmom]
@@ -166,7 +215,12 @@ if magmom is None:
 
 standardized_structure_name = f'setting{setting:03d}_{configuration}_standardized.vasp'
 
-atoms = read(standardized_structure_name)
+if cell_info and cell_info.get('structure_file'):
+    processed_structure_name = cell_info['structure_file']
+else:
+    processed_structure_name = standardized_structure_name
+
+atoms = read(processed_structure_name)
 
 calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
 compound_dir = os.path.join(calcfold, f"{atoms.get_chemical_formula(mode='metal')}{struct_suffix}")
@@ -176,8 +230,12 @@ U = np.round(float(params['ldauu'][next(i for i, x in enumerate(params['ldaul'])
 J = np.round(float(params['ldauj'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
 encut = params['encut']
 kpts = params['kpts']
-mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}')
+mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}')
 # mae_dir = os.path.join(state_dir, 'mae')
+
+# the cell that VASP actually calculated (used for every normalization below)
+volume, n_atoms, calc_formula = get_calc_cell(mae_dir, cell_info, path_to_poscar)
+print(f'Calculated cell: {calc_formula}, {n_atoms} atoms, V = {volume:.4f} A^3')
 
 
 phi = np.linspace(0.0001, 2 * np.pi-0.0001, Nph+1)
@@ -204,7 +262,10 @@ all_phi = []
 all_theta = []
 all_E = []
 colors = [cm.rainbow(i) for i in np.linspace(0, 1, Nph+1)]
-E_ref = float((Oszicar(f"{mae_dir}/z/singlepoint/OSZICAR").all_energies[-1])[-2])
+ref_oszicar = f"{mae_dir}/z/singlepoint/OSZICAR"
+if not os.path.isfile(ref_oszicar):
+    raise IOError(f'{ref_oszicar} not found: run 1_submit.py and the VASP jobs first.')
+E_ref = float((Oszicar(ref_oszicar).all_energies[-1])[-2])
 for phin, c in zip(phi, colors):
     TOTEN = []
     theta_read = []
@@ -229,20 +290,21 @@ for phin, c in zip(phi, colors):
                         all_E.append(float((Oszicar(folder+"/OSZICAR").all_energies[-1])[-2]))
                         print('Energy for Phi='+str(np.round(phin,2))+' and theta='+str(np.round(thetan,2))+'  '+str(TOTEN[-1]))
                 if FinCond == 0:
-                    all_E.append(np.log(-2)) #to ignore in plotting
-                    print('job for Phi='+str(np.round(phin,2))+' and theta='+str(np.round(thetan,2))+' is not finished!')
+                    print('job for Phi='+str(np.round(phin,2))+' and theta='+str(np.round(thetan,2))+' is not finished and will be skipped!')
     #print('TOTEN: ', TOTEN)
     # plt.plot(np.array(theta_read)*180.0/np.pi, (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]), '-o',color=c, label=r'$\phi$='+str(np.round(phin,3)))
-    plt.plot(np.array(theta_read)*180.0/np.pi, (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]), '-o',color=c, label=r'$\phi$='+str(np.round(phin*180.0/np.pi))+r'$^{\circ}$')
-    np.save(f"./outputs_{configuration}/TOTEN_"+str(np.round(phin,3))+f"_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy", (np.array(TOTEN)-E_ref)*((10.0**-6.0)/readPOSCAR(path_to_poscar)[0])*(eV/(Ang**3))*(1.0/readPOSCAR(path_to_poscar)[3]))
-    np.save(f"./outputs_{configuration}/theta_"+str(np.round(phin,3))+f"_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy", np.array(theta_read)*180.0/np.pi)
+    plt.plot(np.array(theta_read)*180.0/np.pi, (np.array(TOTEN)-E_ref)/volume*E2MJ/n_atoms, '-o',color=c, label=r'$\phi$='+str(np.round(phin*180.0/np.pi))+r'$^{\circ}$')
+    np.save(f"./outputs_{configuration}/TOTEN_"+str(np.round(phin,3))+f"_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}.npy", (np.array(TOTEN)-E_ref)/volume*E2MJ/n_atoms)
+    np.save(f"./outputs_{configuration}/theta_"+str(np.round(phin,3))+f"_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}.npy", np.array(theta_read)*180.0/np.pi)
     #plt.plot(theta, TOTEN)
 plt.legend(prop={'size': 8})
-plt.savefig(f"./outputs_{configuration}/EvsTheta_curves_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.png")
+plt.savefig(f"./outputs_{configuration}/EvsTheta_curves_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}.png")
 
+if not all_E:
+    raise IOError(f'No completed PhTh calculations found under {mae_dir}. '
+                  'Run 1_submit.py and the VASP jobs first.')
 
-
-outputs = open(f'MAE_theta_phi_{configuration}_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.txt','w')
+outputs = open(f'MAE_theta_phi_{configuration}_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}.txt','w')
 
 MAE = (max(all_E)-min(all_E))
 K1 = (max(all_E)-min(all_E))
@@ -260,27 +322,38 @@ min_vec = [np.sin(theta_min) * np.cos(phi_min), np.sin(theta_min) * np.sin(phi_m
 max_vec = [np.sin(theta_max) * np.cos(phi_max), np.sin(theta_max) * np.sin(phi_max), np.cos(theta_max)]
 print('max_vec: ', np.round(max_vec,2))
 print('min_vec: ', np.round(min_vec,2))
-outputs.write('max_vec: '+str(list(np.round(max_vec,2)))+'\n')
-outputs.write('min_vec: '+str(list(np.round(min_vec,2)))+'\n')
+outputs.write('max_vec: '+str([float(v) for v in np.round(max_vec,2)])+'\n')
+outputs.write('min_vec: '+str([float(v) for v in np.round(min_vec,2)])+'\n')
 
 MAE_x = np.array(min_vec[:])
-if max(abs(np.array(np.cross(min_vec, max_vec))))>0.0001:
-    MAE_z = np.array(NormedCross(min_vec, max_vec))
+# MAE_z is the normal of the plane spanned by the easy and hard axes.
+# If they are (numerically) parallel - which happens when both sit on the
+# theta~0 pole - fall back to a deterministic perpendicular axis.  The old
+# random fallback made the MAE curve irreproducible.
+cross_vec = np.array(np.cross(min_vec, max_vec), dtype=float)
+if np.linalg.norm(cross_vec) > 0.0001:
+    MAE_z = cross_vec/np.linalg.norm(cross_vec)
 else:
-    if os.path.isfile(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy') == False:
-        Ran_vec = np.random.rand(3)
-        Ran_vec = Ran_vec/np.linalg.norm(Ran_vec)
-        MAE_z = np.array(np.cross(min_vec, Ran_vec))/np.linalg.norm(np.cross(min_vec, Ran_vec))
-        np.save(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy', MAE_z)
-    if os.path.isfile(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy') == True:
-        MAE_z = np.load(f'./outputs_{configuration}/MAE_Ran_vec_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}.npy')
-MAE_y = np.array(np.cross(MAE_z, MAE_x))/np.linalg.norm(np.cross(MAE_z, MAE_x))
-outputs.write('MAE_x: '+str(list(np.round(MAE_x,3)))+', norm='+str(np.round(np.linalg.norm(MAE_x)))+'\n')
-outputs.write('MAE_z: '+str(list(np.round(MAE_z,3)))+', norm='+str(np.round(np.linalg.norm(MAE_y)))+'\n')
-outputs.write('MAE_y: '+str(list(np.round(MAE_y,3)))+', norm='+str(np.round(np.linalg.norm(MAE_z)))+'\n')
-print('MAE_x: ', np.round(MAE_x,3), ', norm', np.round(np.linalg.norm(MAE_x)))
-print('MAE_z: ', np.round(MAE_z,3), ', norm', np.round(np.linalg.norm(MAE_y)))
-print('MAE_y: ', np.round(MAE_y,3), ', norm', np.round(np.linalg.norm(MAE_z)))
+    reference = np.array([1.0, 0.0, 0.0])
+    if abs(np.dot(reference, MAE_x)) > 0.9:
+        reference = np.array([0.0, 1.0, 0.0])
+    MAE_z = np.cross(MAE_x, reference)
+    MAE_z = MAE_z/np.linalg.norm(MAE_z)
+    print('WARNING: easy and hard axis are (anti)parallel; using a deterministic '
+          f'perpendicular axis {np.round(MAE_z, 3)} for the MAE curve.')
+MAE_y = np.array(np.cross(MAE_z, MAE_x))
+MAE_y = MAE_y/np.linalg.norm(MAE_y)
+outputs.write('MAE_x: '+str([float(v) for v in np.round(MAE_x,3)])+', norm='+str(np.round(np.linalg.norm(MAE_x),3))+', easy axis\n')
+outputs.write('MAE_z: '+str([float(v) for v in np.round(MAE_z,3)])+', norm='+str(np.round(np.linalg.norm(MAE_z),3))+'\n')
+outputs.write('MAE_y: '+str([float(v) for v in np.round(MAE_y,3)])+', norm='+str(np.round(np.linalg.norm(MAE_y),3))+', hard axis\n')
+outputs.write(f'MAE: {MAE*1000:.6f} meV, {MAE/volume*E2MJ:.6f} MJ/m^3 (per cell), '
+              f'{MAE/volume*E2MJ/n_atoms:.6f} MJ/m^3 (per atom)\n')
+outputs.write(f'calculated cell: {calc_formula}, {n_atoms} atoms, V = {volume:.4f} A^3\n')
+print('MAE_x: ', np.round(MAE_x,3), ', norm', np.round(np.linalg.norm(MAE_x),3), '(easy axis)')
+print('MAE_z: ', np.round(MAE_z,3), ', norm', np.round(np.linalg.norm(MAE_z),3))
+print('MAE_y: ', np.round(MAE_y,3), ', norm', np.round(np.linalg.norm(MAE_y),3), '(hard axis)')
+print(f'MAE = {MAE*1000:.6f} meV = {MAE/volume*E2MJ:.6f} MJ/m^3 (per cell) = '
+      f'{MAE/volume*E2MJ/n_atoms:.6f} MJ/m^3 (per atom)')
 
 
 outputs.close()

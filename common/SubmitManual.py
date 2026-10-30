@@ -22,6 +22,18 @@ from pymatgen.io.vasp.outputs import Oszicar
 
 # from common.utilities import atoms_to_encode #, VaspCalculationTask, WriteOutputTask, WriteChargesTask
 
+def fmt_kpts(kpts):
+    """Compact label for a k-point specification (scalar or explicit mesh).
+
+    A scalar is interpreted by ASE/VASP as the ``Auto`` length R_k (which is
+    equivalent to ``KSPACING = 2*pi/R_k``), an explicit mesh is written as
+    ``15x15x15`` so that it can be used in directory names.
+    """
+    if isinstance(kpts, (list, tuple)):
+        return 'x'.join(str(k) for k in kpts)
+    return str(kpts)
+
+
 class SubmitManual(object):
     def __init__(self, poscar_file: str, mode: str, fix_params: dict, magmoms: list, struct_suffix = '', 
                  encut_values: Union[list, range] = None, sigma_values: Union[list, range] = None,
@@ -211,7 +223,7 @@ class SubmitManual(object):
             J = np.round(float(params['ldauj'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
             encut = params['encut']
             kpts = params['kpts']
-            mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{kpts}_EN{encut}')
+            mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}')
             try:
                 os.mkdir(mae_dir)
             except:
@@ -220,24 +232,88 @@ class SubmitManual(object):
 
             return mae_dir
 
+        def write_collinear_reference(z_dir, params):
+            """Write the collinear (ISPIN=2) SCF run that provides the reference
+            CHGCAR/WAVECAR for all non-collinear MAE runs.
+
+            MAE.py always starts the spin-rotation runs from the *collinear*
+            density of the K/ENCUT convergence calculation (ICHARG=11,
+            ISTART=1).  If the 2_coll stage did not keep CHGCAR/WAVECAR we have
+            to recompute that reference here: starting the MAE runs from a
+            self-consistent non-collinear density instead breaks the
+            E(m) = E(-m) symmetry and biases the anisotropy energy.
+            """
+            coll_dir = os.path.join(z_dir, 'collinear', 'singlepoint')
+            os.makedirs(coll_dir, exist_ok=True)
+
+            coll_params = copy(params)
+            coll_params.pop('saxis', None)
+            # these tags live in the #_ncl_ section of MAE/INCAR and are not
+            # present in the collinear run (VOSKOWN and GGA_COMPAT change the
+            # energy, LORBIT only the output)
+            coll_params.pop('voskown', None)
+            coll_params.pop('gga_compat', None)
+            coll_params.pop('lorbit', None)
+            coll_params['lnoncollinear'] = False
+            coll_params['lsorbit'] = False
+            coll_params['icharg'] = 2
+            coll_params['istart'] = 0
+            coll_params['lcharg'] = True
+            coll_params['lwave'] = True
+            coll_params['ispin'] = 2
+
+            # MAE/INCAR uses NBANDS = 58 for the collinear run and 116 for the
+            # non-collinear ones; halving reproduces that relation.
+            if coll_params.get('nbands'):
+                coll_params['nbands'] = max(1, int(coll_params['nbands']) // 2)
+
+            # collinear runs need scalar moments: use the magnitude of the
+            # supplied non-collinear vectors
+            magmoms = np.array(self.magmoms, dtype=float)
+            if magmoms.ndim == 2:
+                scalars = np.linalg.norm(magmoms, axis=1)
+            else:
+                scalars = magmoms
+            # ASE cannot change the shape of an existing initial_magmoms array,
+            # so drop it first (it may already hold the 3-component vectors)
+            if 'initial_magmoms' in self.atoms.arrays:
+                del self.atoms.arrays['initial_magmoms']
+            self.atoms.set_initial_magnetic_moments(scalars)
+
+            calc = Vasp(atoms=self.atoms, directory=coll_dir, **coll_params)
+            calc.write_input(self.atoms)
+
         def check_z_dir():
             chgcar_found = False
-            # checking the WAVECAR and CHGCAR in z_dir
-            if os.path.isfile(f'{z_dir}/singlepoint/CHGCAR')==True and os.path.isfile(f'{z_dir}/singlepoint/WAVECAR')==True:
-                if os.path.getsize(f'{z_dir}/singlepoint/CHGCAR')>0 and os.path.getsize(f'{z_dir}/singlepoint/WAVECAR')>0: 
+            # checking the WAVECAR and CHGCAR in z_dir (z_done marks a reference
+            # density that was produced successfully by this workflow)
+            if os.path.isfile(f'{z_dir}/singlepoint/CHGCAR')==True and os.path.isfile(f'{z_dir}/singlepoint/WAVECAR')==True and os.path.isfile(f'{z_dir}/singlepoint/z_done')==True:
+                if os.path.getsize(f'{z_dir}/singlepoint/CHGCAR')>0 and os.path.getsize(f'{z_dir}/singlepoint/WAVECAR')>0:
                     print(f"Collinear CHGCAR and WAVECAR are found in {z_dir}/singlepoint directory")
                     chgcar_found = True
             # checking the WAVECAR and CHGCAR in state_dir/recalc
             elif os.path.isfile(f'{state_dir}/recalc/CHGCAR')==True and os.path.isfile(f'{state_dir}/recalc/WAVECAR')==True:
-                if os.path.getsize(f'{state_dir}/recalc/CHGCAR')>0 and os.path.getsize(f'{state_dir}/recalc/WAVECAR')>0: 
+                if os.path.getsize(f'{state_dir}/recalc/CHGCAR')>0 and os.path.getsize(f'{state_dir}/recalc/WAVECAR')>0:
                     print(f"Collinear CHGCAR and WAVECAR are found in {state_dir}/recalc directory")
-                    os.system(f'cp -r {state_dir}/recalc {z_dir}/singlepoint')
+                    os.makedirs(f'{z_dir}/singlepoint', exist_ok=True)
+                    os.system(f'cp -r {state_dir}/recalc/. {z_dir}/singlepoint/')
+                    # make the collinear k-point list available as KPOINTS for
+                    # the ncl runs (VASP expands IBZKPT to the full mesh for ncl)
+                    if os.path.isfile(f'{z_dir}/singlepoint/IBZKPT'):
+                        os.system(f'cp {z_dir}/singlepoint/IBZKPT {z_dir}/singlepoint/KPOINTS')
+                    open(f'{z_dir}/singlepoint/z_done', 'w').close()
                     chgcar_found = True
             # checking the WAVECAR and CHGCAR in state_dir/singelpoint
             elif os.path.isfile(f'{state_dir}/singlepoint/CHGCAR')==True and os.path.isfile(f'{state_dir}/singlepoint/WAVECAR')==True:
-                if os.path.getsize(f'{state_dir}/singlepoint/CHGCAR')>0 and os.path.getsize(f'{state_dir}/singlepoint/WAVECAR')>0: 
+                if os.path.getsize(f'{state_dir}/singlepoint/CHGCAR')>0 and os.path.getsize(f'{state_dir}/singlepoint/WAVECAR')>0:
                     print(f"Collinear CHGCAR and WAVECAR are found in {state_dir}/singlepoint directory")
-                    os.system(f'cp -r {state_dir}/singlepoint {z_dir}/singlepoint')
+                    os.makedirs(f'{z_dir}/singlepoint', exist_ok=True)
+                    os.system(f'cp -r {state_dir}/singlepoint/. {z_dir}/singlepoint/')
+                    # make the collinear k-point list available as KPOINTS for
+                    # the ncl runs (VASP expands IBZKPT to the full mesh for ncl)
+                    if os.path.isfile(f'{z_dir}/singlepoint/IBZKPT'):
+                        os.system(f'cp {z_dir}/singlepoint/IBZKPT {z_dir}/singlepoint/KPOINTS')
+                    open(f'{z_dir}/singlepoint/z_done', 'w').close()
                     chgcar_found = True
 
             else:
@@ -250,18 +326,23 @@ class SubmitManual(object):
 
 
             if chgcar_found == False:
+                # Recompute the collinear reference density, then run the
+                # non-collinear reference starting from it (ICHARG=11,
+                # ISTART=1), exactly as MAE.py does.
+                write_collinear_reference(z_dir, params)
                 params['lnoncollinear'] = True
                 params['lsorbit'] = True
-                params['icharg'] = 2
-                params['istart'] = 0
+                params['icharg'] = 11
+                params['istart'] = 1
                 params['lcharg'] = True
                 params['lwave'] = True
+                params['saxis'] = [0.0, 0.0, 1.0]
                 # writing input files
                 self.write_vasp_input_files(z_dir,'singlepoint',params)
-                # writing the jobscript one single point calculation without recalc
+                # writing the two-step reference jobscript
                 self.write_jobscript(jobdir=z_dir,
                                      jobscript_name='jobscript_mae_theta_phi',
-                                     mode='singlepoint',
+                                     mode='mae_z',
                                      write_output=False,
                                      keep_large_files=True)
 
@@ -368,6 +449,14 @@ class SubmitManual(object):
 
             mae_dir = create_mae_dir(state_dir)
 
+            # Regenerate the jobscript from scratch: with
+            # parallel_over_configurations=False every write_jobscript() call
+            # appends to the same file, so re-running the submission would
+            # otherwise duplicate every calculation.
+            mae_jobscript = os.path.join(mae_dir, 'jobscript_mae_theta_phi')
+            if os.path.isfile(mae_jobscript):
+                os.remove(mae_jobscript)
+
             # directory with collinear calculation with SAXIS || z
             z_dir = os.path.join(mae_dir, 'z')
             try:
@@ -434,6 +523,11 @@ class SubmitManual(object):
 
             mae_dir = create_mae_dir(state_dir)
 
+            # regenerate the jobscript from scratch (see mae_theta_phi above)
+            mae_jobscript = os.path.join(mae_dir, 'jobscript_mae_curve')
+            if os.path.isfile(mae_jobscript):
+                os.remove(mae_jobscript)
+
             # directory with collinear calculation with SAXIS || z
             z_dir = os.path.join(mae_dir, 'z')
             try:
@@ -461,7 +555,7 @@ class SubmitManual(object):
                 # E_ref_MAE = float((Oszicar(f"{z_dir}/singlepoint/OSZICAR").all_energies[-1])[-2])
 
             for alpha in  np.linspace(0, 2*np.pi, N_MAE+1):
-                alpha_dir_name = 'K_'+str(params['kpts'])+'_RtMAE_'+str(np.round((alpha/np.pi)*180,2))
+                alpha_dir_name = 'K_'+fmt_kpts(params['kpts'])+'_RtMAE_'+str(np.round((alpha/np.pi)*180,2))
                 alpha_dir = os.path.join(mae_dir, alpha_dir_name)
                 try:
                     os.mkdir(alpha_dir)
@@ -503,6 +597,10 @@ class SubmitManual(object):
             # add the necessary VASP parameters
             params['lorbit'] = 11
             params['ispin'] = 2
+            # ASE cannot change the shape of an existing initial_magmoms array
+            # (scalar for collinear vs 3-component for non-collinear runs)
+            if 'initial_magmoms' in self.atoms.arrays:
+                del self.atoms.arrays['initial_magmoms']
             self.atoms.set_initial_magnetic_moments(magmoms)
 
         return params
@@ -800,7 +898,17 @@ class SubmitManual(object):
             f.write('\n')
             f.write(f'cd {jobdir}/singlepoint \n')
             f.write('\n')
+            # the reference (z) calculation may still be running when this job
+            # starts (e.g. when every job is submitted at once), so wait for it
+            f.write(f'while [ ! -f {jobdir_prev}/z_done ]; do sleep 30; done\n')
+            # use the same k-point list as the reference calculation (see mae_z).
+            # NB: z/singlepoint/KPOINTS is the collinear IBZKPT copied by mae_z;
+            # do NOT use z/singlepoint/IBZKPT here - for a non-collinear run VASP
+            # rewrites IBZKPT with the expanded full mesh (512 instead of 260),
+            # which is incompatible with the reference energy and WAVECAR.
+            f.write(f'cp {jobdir_prev}/KPOINTS ./KPOINTS \n')
             f.write(f'cp {jobdir_prev}/CHGCAR ./CHGCAR \n')
+            f.write(f'rm -f WAVECAR \n')
             f.write(f'ln -s {jobdir_prev}/WAVECAR ./WAVECAR \n')
             f.write('\n')
             f.write(self.calculator_command)
@@ -814,10 +922,62 @@ class SubmitManual(object):
 
 
 
+        elif mode == 'mae_z':
+            # two-step reference calculation:
+            #   1. collinear SCF run that writes CHGCAR/WAVECAR
+            #   2. non-collinear run starting from that density (ICHARG=11)
+            # The spin-rotation runs then start from step 2, like in MAE.py.
+            if self.parallel_over_configurations:
+                # writing separate jobscripts for every configuration
+                f = open(f'{jobdir}/{jobscript_name}','w')
+                f.write(self.jobheader)
+                if '#SBATCH' in self.jobheader:
+                    print(f"Using SLURM queue system for {self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.name}{calcname} MAE reference calculation")
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_{self.name}{calcname}")
+            else:
+                # writing one jobscript for all configurations
+                if os.path.exists(f'{job_top_dir}/{jobscript_name}'):
+                    # open existing jobscript file for appending lines
+                    f = open(f'{job_top_dir}/{jobscript_name}','a')
+                else:
+                    # create new jobscript file and writing header
+                    f = open(f'{job_top_dir}/{jobscript_name}','w')
+                    f.write(self.jobheader)
+                    f.write(f"#SBATCH --job-name={self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}_MAE")
+
+            f.write('\n')
+            f.write('\n')
+            f.write(f'rm -f {jobdir}/singlepoint/z_done\n')
+            f.write(f'cd {jobdir}/collinear/singlepoint \n')
+            f.write('\n')
+            f.write(self.calculator_command)
+            f.write('\n')
+            f.write('\n')
+            f.write(f'cd {jobdir}/singlepoint \n')
+            # Use the collinear k-point list (IBZKPT) for the non-collinear
+            # runs, exactly as MAE.py does.  The collinear run exploits
+            # time-reversal symmetry (half of the mesh), while a
+            # non-collinear/SOC run cannot, so a freshly generated mesh would
+            # be incompatible with the WAVECAR and VASP would abort with
+            # "LAPACK: Routine ZPOTRF failed".
+            f.write(f'cp ../collinear/singlepoint/IBZKPT ./KPOINTS \n')
+            f.write(f'cp ../collinear/singlepoint/CHGCAR ./CHGCAR \n')
+            f.write(f'cp ../collinear/singlepoint/WAVECAR ./WAVECAR \n')
+            f.write('\n')
+            f.write(self.calculator_command)
+            f.write('\n')
+            f.write(f'touch {jobdir}/singlepoint/z_done\n')
+            f.write('\n')
+            f.write('\n')
+            f.close()
+
         # write helping script for submitting the calculations through the job system
         if self.parallel_over_configurations:
-            # appending a line to the submit script 
-            script_name = f'{job_top_dir}/run_all_{mode}.sh'
+            # appending a line to the submit script
+            # the reference (mae_z) job belongs to the same submit script as the
+            # spin-rotation (nsc) jobs, and is appended first
+            submit_mode = 'nsc' if mode == 'mae_z' else mode
+            script_name = f'{job_top_dir}/run_all_{submit_mode}.sh'
             if not os.path.exists(script_name):
                 with open(script_name,'w') as f1:
                     f1.write('#!/bin/sh\n')
@@ -832,7 +992,7 @@ class SubmitManual(object):
                 # using sh command
                 exec_command = 'sh'
 
-            submit_command = f'cd {jobdir}; {exec_command} jobscript\n'
+            submit_command = f'cd {jobdir}; {exec_command} {jobscript_name}\n'
             write_submit_script(script_name,submit_command)
 
         return
