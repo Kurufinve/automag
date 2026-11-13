@@ -29,3 +29,5 @@ runs/
 /examples/*/CalcFold/
 /examples/*/geometries/
 /models/*
+# The checkpoints themselves stay out of git; this note describes how to get them.
+!/models/README.md
