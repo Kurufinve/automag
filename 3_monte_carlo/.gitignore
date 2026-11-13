@@ -3,3 +3,5 @@
 *.txt
 *.vasp
 /*/
+# The Monte Carlo stage copies this template into a project - keep it.
+!/vampire_input/

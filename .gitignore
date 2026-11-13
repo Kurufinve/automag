@@ -17,6 +17,14 @@ runs/
 # Third-party codes downloaded and compiled by tools/build_external.py.
 /external/
 
+# Example data inside the stage directories is never published: these are
+# large calculation outputs (ESpinS runs, MAE scans) that belong to a project,
+# not to the code.  vampire_input/ stays - it is the template the Monte Carlo
+# stage copies into a project.
+/3_monte_carlo/*/
+!/3_monte_carlo/vampire_input/
+/4_mae/*/
+
 # Work directories created when an example is run in place.
 # The examples are meant to be copied somewhere else; nothing they produce
 # belongs in the repository.
