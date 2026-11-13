@@ -206,17 +206,23 @@ class SubmitManual(object):
 
     @staticmethod
     def _guard_activation(text):
-        """Wrap a ``source <conda.sh> && conda activate <env>`` line in a test."""
-        if not text or 'conda.sh' not in text or text.lstrip().startswith('if '):
+        """Wrap a ``source <script>`` line in an existence test.
+
+        A jobscript runs under ``sh``, where ``source`` is a special builtin: a
+        missing file aborts the whole job, so every line after the activation
+        (the calculation, the result writer, the sentinel) silently never runs.
+        That is how a stale ``source .venv/bin/activate`` default used to break
+        the prophet stages.
+        """
+        if not text or text.lstrip().startswith('if '):
             return text
-        tokens = text.split()
-        path = next((tok for tok in tokens if tok.endswith('conda.sh')), None)
-        if path is None:
-            return text
-        path = path.strip('"\'')
         lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
         body = ' '.join(lines)
-        return f'if [ -f {path} ]; then {body}; fi'
+        tokens = body.split()
+        if not tokens or tokens[0] != 'source' or len(tokens) < 2:
+            return text
+        path = tokens[1].strip('"\'')
+        return f'if [ -e {path} ]; then {body}; fi'
 
     def submit(self):
         """Write all inputs and (unless ``auto_submit`` is False) submit them."""

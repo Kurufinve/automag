@@ -12,8 +12,9 @@ use_fireworks = True
 calculator = 'vasp'
 jobheader = """#!/bin/bash""" 
 calculator_command = "mpirun vasp_std"
-environment_activate = "source .venv/bin/activate"
-environment_deactivate = "source .venv/bin/deactivate"
+environment_activate = ""      # no activation by default: the
+# pipeline runs the jobs in the environment it was started in
+environment_deactivate = ""
 parallel_over_configurations = True
 struct_suffix = ''
 # number of grid points for phi angle rotation (0-360 degrees)
