@@ -103,6 +103,41 @@ def copy_output(source, destination="output"):
     print(f"Monte Carlo output copied to {Path(destination).resolve()}")
 
 
+def temperature_range():
+    """``(start, end, step)`` of the Monte Carlo scan, unset values as None."""
+    return (settings.get("temperature_start"),
+            settings.get("temperature_end"),
+            settings.get("temperature_step"))
+
+
+def apply_vampire_temperatures(path):
+    """Set ``sim:*temperature*`` in the VAMPIRE input from the stage settings."""
+    start, end, step = temperature_range()
+    if start is None and end is None and step is None:
+        return
+    text = Path(path).read_text()
+    values = {
+        "sim:minimum-temperature": start,
+        "sim:maximum-temperature": end,
+        "sim:temperature-increment": step,
+    }
+    for key, value in values.items():
+        if value is None:
+            continue
+        number = f"{float(value):g}"
+        pattern = re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)(\S+)",
+                             re.MULTILINE)
+        if pattern.search(text):
+            text = pattern.sub(lambda match: match.group(1) + number, text)
+        else:
+            text = text.rstrip("\n") + f"\n{key}={number}\n"
+    Path(path).write_text(text)
+    print("VAMPIRE temperature range: "
+          f"{start if start is not None else 'default'} -> "
+          f"{end if end is not None else 'default'} K"
+          f"{f', increment {step}' if step is not None else ''}")
+
+
 def run_vampire():
     vampire_dir = Path("vampire")
     unit_cell = vampire_dir / "vamp.ucf"
@@ -141,6 +176,7 @@ def run_vampire():
         unit_cell_name = match.group(1)
 
     shutil.copyfile(input_file, vampire_dir / "input")
+    apply_vampire_temperatures(vampire_dir / "input")
     if material_file.resolve() != (vampire_dir / material_name).resolve():
         shutil.copyfile(material_file, vampire_dir / material_name)
     if unit_cell_name != "vamp.ucf":

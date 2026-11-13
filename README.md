@@ -544,6 +544,10 @@ Result: `2_relax/relaxed_<state>.vasp` (and `.json`).
                 "append_coupling_constants": True,
                 "magnetic_atoms": ["Fe"],
                 "mc_backend": "vampire",          # or "espins"
+                "temperature_start": 0,           # K (None = backend default)
+                "temperature_end": 1200,          # K
+                "temperature_step": 1,            # K between points
+                # "temperature_points": 20,       # explicit count for ESpinS
                 "mc_timeout": None}               # seconds
 ```
 
@@ -555,7 +559,21 @@ chosen `2_coll` configuration, not the requested spin value;
 `espins_run_command`, `vampire_input_file`, `vampire_material_file`,
 `espins_output_file`, `espins_output_converter`, `vampire_dir`, `espins_dir`,
 ...); `postprocess` fits the magnetization curve and prints Tc and the critical
-exponent.  `wait_for_monte_carlo_output` keeps the old behaviour when you run
+exponent.
+
+The temperature scan is set the same way for both backends:
+
+| key | VAMPIRE | ESpinS |
+| --- | --- | --- |
+| `temperature_start` | `sim:minimum-temperature` | `tem_start` |
+| `temperature_end` | `sim:maximum-temperature` | `tem_end` |
+| `temperature_step` | `sim:temperature-increment` | `tems_num = (end-start)/step + 1` |
+| `temperature_points` | - | `tems_num` (overrides the step) |
+
+Unset keys keep the backend's own default (VAMPIRE's bundled input scans
+0-1200 K in 1 K steps).  VAMPIRE's input is patched in the copy under
+`vampire/input` at run time; ESpinS's `<seedname>.mcin` is patched after the
+`-inp2` step and created from `inp2.mcin` when ESpinS did not write one.  `wait_for_monte_carlo_output` keeps the old behaviour when you run
 VAMPIRE by hand.
 
 ### `mae`

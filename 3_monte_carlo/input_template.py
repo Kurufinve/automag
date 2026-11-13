@@ -11,6 +11,15 @@ control_group_size = 0.4
 # append coupling constant before launching 2_write_vampire_ucf.py
 append_coupling_constants = False
 
+# Temperature range of the Monte Carlo scan (K).  Used by both backends:
+# VAMPIRE gets sim:minimum/maximum-temperature and the increment, ESpinS gets
+# tem_start / tem_end and tems_num = (end - start) / step + 1 (or temperature_points).
+# Leave a value unset (None) to keep the backend's own default.
+temperature_start = None
+temperature_end = None
+temperature_step = None
+# temperature_points = 20      # explicit number of temperatures for ESpinS
+
 # Monte Carlo backend run by 5_run_mc.py: 'vampire' or 'espins'
 mc_backend = 'vampire'
 vampire_run_command = 'vampire'

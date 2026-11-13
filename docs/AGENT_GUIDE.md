@@ -523,6 +523,17 @@ In a frozen process `common.paths.code_root()` is `sys._MEIPASS` and:
   build unpacks to a fresh temp dir.
 `run_automag.py` implements both switches.
 
+### Monte Carlo temperature scan
+
+`temperature_start` / `temperature_end` / `temperature_step` (and, for ESpinS,
+`temperature_points`) are stage settings of `monte_carlo`:
+`5_run_mc.py::apply_vampire_temperatures()` patches `sim:minimum-temperature`,
+`sim:maximum-temperature`, `sim:temperature-increment` in the copied
+`vampire/input`; `4_write_espins_mcin.py::apply_espins_temperatures()` patches
+`tem_start` / `tem_end` / `tems_num` in `<seedname>.mcin` (created from
+`inp2.mcin` when ESpinS has not produced one).  Unset keys leave the backend
+default alone.
+
 ## 12. Magnetic configurations (`2_coll` enumeration)
 
 `spin_values` and `magnetic_atoms` are optional everywhere. `common/magnetic.py`:

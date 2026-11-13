@@ -13,7 +13,7 @@ struct_suffix = ''
 script_header = '#!/bin/bash'
 
 
-import os,sys
+import os,re,sys
 
 cwd = os.getcwd()
 
@@ -176,6 +176,54 @@ with open(f'espins/{seedname}.inp2.mcin', 'w') as f:
 
 # run 2nd initialization step before mc simulation in ESpinS
 os.system(f"cd espins; {espins_run_command} -inp2 {seedname}")
+
+
+def apply_espins_temperatures(path, fallback_text=""):
+    """Set ``tem_start`` / ``tem_end`` / ``tems_num`` in the ESpinS MC input.
+
+    ESpinS takes the temperature scan from ``<seedname>.mcin``.  Values that the
+    stage does not set are kept as they are (or as ESpinS defaults when the file
+    is created here); returns True when the file was written.
+    """
+    start = globals().get("temperature_start")
+    end = globals().get("temperature_end")
+    step = globals().get("temperature_step")
+    points = globals().get("temperature_points")
+    if start is None and end is None and points is None:
+        return False
+    start = 25.0 if start is None else float(start)
+    end = 75.0 if end is None else float(end)
+    if points is None:
+        step = 1.0 if step is None else float(step)
+        points = max(1, int(round((end - start) / step)) + 1)
+    points = int(points)
+
+    path = Path(path)
+    text = path.read_text() if path.is_file() else fallback_text
+    values = {"tem_start": start, "tem_end": end, "tems_num": points}
+    for key, value in values.items():
+        number = f"{value:g}"
+        pattern = re.compile(rf"^(\s*{key}\s*=\s*)(\S+)", re.MULTILINE)
+        if pattern.search(text):
+            text = pattern.sub(lambda match: match.group(1) + number, text)
+        else:
+            text = text.rstrip("\n") + f"\n {key} = {number}\n"
+    path.write_text(text)
+    print(f"ESpinS temperature range: {start:g} -> {end:g} K "
+          f"in {points} point(s)")
+    return True
+
+
+mcin_path = f'espins/{seedname}.mcin'
+inp2_path = f'espins/{seedname}.inp2.mcin'
+fallback = ''
+if not os.path.isfile(mcin_path) and os.path.isfile(inp2_path):
+    # ESpinS did not produce the run input yet - start from inp2, which already
+    # holds the cell, the atoms and the Jij block.
+    with open(inp2_path, 'rt') as f:
+        fallback = f.read()
+    print(f'WARNING: {mcin_path} not found, deriving it from {inp2_path}')
+apply_espins_temperatures(mcin_path, fallback)
 
 # write the command for running the Monte-Carlo simulation that should be executed separately
 with open(f'espins/run_mc.sh', 'w') as f:
