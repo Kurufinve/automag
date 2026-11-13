@@ -1,5 +1,6 @@
 # choose the configuration to use for Monte Carlo simulation
-configuration = 'afm1'
+# 'lowest' = the most stable configuration found by 2_coll
+configuration = 'lowest'
 
 # choose the cutoff radius in Angstrom for neighbor search
 cutoff_radius = 4.1
@@ -16,8 +17,13 @@ append_coupling_constants = False
 # name of the poscar file to use in the automag/geometries folder
 poscar_file = 'Fe2O3-alpha_conventional.vasp'
 
+# Monte Carlo backend run by 5_run_mc.py: 'vampire' or 'espins'
+mc_backend = 'espins'
+
 # command for running espins
 espins_run_command = 'module load intel2021/mkl/latest; /home/dpoletaev/soft/ESpinS/mc.x'
+# espins_output_file = 'result.dat'
+# espins_output_converter = 'python convert_espins.py'
 
 # name of the calculator with which singlepoint energies were computed
 calculator = 'vasp'

@@ -1,0 +1,513 @@
+{
+  "PIPELINE": {
+    "workdir": ".",
+    "structure": "structure.vasp",
+    "struct_suffix": "",
+    "hosts": {
+      "local": {
+        "transport": "local"
+      },
+      "cluster": {
+        "transport": "ssh",
+        "host": "login.cluster.example",
+        "user": "myuser",
+        "workdir": "/shared/myproject",
+        "automag_home": "/shared/automag",
+        "python": "python3",
+        "scheduler": "slurm"
+      }
+    },
+    "execution": {
+      "mode": "process",
+      "max_parallel": 4,
+      "max_attempts": 3
+    },
+    "wait_timeout": 2592000,
+    "wait_interval": 60,
+    "wait_stable_seconds": 600,
+    "run": [
+      {
+        "id": "coll",
+        "stage": "coll",
+        "calculator": "prophet_spin",
+        "description": "magnetic configurations of the input structure",
+        "params": {
+          "model_path": null,
+          "head_path": null,
+          "device": "cpu",
+          "predict_moments": true
+        },
+        "supercell_size": 1,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "struct_suffix": "",
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash",
+        "host": "local"
+      },
+      {
+        "id": "mc",
+        "stage": "monte_carlo",
+        "calculator": "prophet_spin",
+        "coll_instance": "coll",
+        "struct_suffix": "",
+        "configuration": "lowest",
+        "cutoff_radius": 4.1,
+        "control_group_size": 0.4,
+        "append_coupling_constants": true,
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "mc_backend": "vampire",
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash",
+        "host": "local"
+      },
+      {
+        "id": "mae",
+        "stage": "mae",
+        "calculator": "prophet_spin",
+        "coll_instance": "coll",
+        "struct_suffix": "",
+        "configuration": "lowest",
+        "Nph": 4,
+        "Nth": 2,
+        "N_MAE": 4,
+        "standardize_cell": true,
+        "use_primitive_cell": true,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "params": {
+          "model_path": null,
+          "head_path": null,
+          "device": "cpu",
+          "predict_moments": true
+        },
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash",
+        "host": "local"
+      },
+      {
+        "id": "coll_vasp",
+        "stage": "coll",
+        "calculator": "vasp",
+        "description": "same magnetic search with VASP on the cluster",
+        "structure": "structure_vasp.vasp",
+        "struct_suffix": "_vasp",
+        "params": {
+          "xc": "PBE",
+          "setups": "recommended",
+          "prec": "Accurate",
+          "ncore": 4,
+          "encut": 600,
+          "ediff": 1e-06,
+          "ismear": 1,
+          "sigma": 0.1,
+          "nelm": 200,
+          "kpts": 20,
+          "lmaxmix": 4,
+          "lcharg": false,
+          "lwave": false,
+          "isym": 0,
+          "ldau": true,
+          "ldautype": 2,
+          "ldaul": [
+            2,
+            -1
+          ],
+          "ldauu": [
+            4.0,
+            0
+          ],
+          "ldauj": [
+            0,
+            0
+          ],
+          "ldauprint": 2,
+          "lreal": "Auto"
+        },
+        "supercell_size": 1,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "mc_vasp",
+        "stage": "monte_carlo",
+        "calculator": "vasp",
+        "coll_instance": "coll_vasp",
+        "struct_suffix": "_vasp",
+        "configuration": "lowest",
+        "cutoff_radius": 4.1,
+        "control_group_size": 0.4,
+        "append_coupling_constants": true,
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "mc_backend": "vampire",
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "mae_vasp",
+        "stage": "mae",
+        "calculator": "vasp",
+        "coll_instance": "coll_vasp",
+        "struct_suffix": "_vasp",
+        "configuration": "lowest",
+        "Nph": 4,
+        "Nth": 2,
+        "N_MAE": 4,
+        "standardize_cell": true,
+        "use_primitive_cell": true,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "params": {
+          "xc": "PBE",
+          "setups": "recommended",
+          "prec": "Accurate",
+          "ncore": 4,
+          "encut": 600,
+          "ediff": 1e-06,
+          "ismear": 1,
+          "sigma": 0.1,
+          "nelm": 200,
+          "kpts": 20,
+          "lmaxmix": 4,
+          "lcharg": false,
+          "lwave": false,
+          "isym": 0,
+          "ldau": true,
+          "ldautype": 2,
+          "ldaul": [
+            2,
+            -1
+          ],
+          "ldauu": [
+            4.0,
+            0
+          ],
+          "ldauj": [
+            0,
+            0
+          ],
+          "ldauprint": 2,
+          "lreal": "Auto"
+        },
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "relax_vasp",
+        "stage": "relax",
+        "calculator": "vasp",
+        "coll_instance": "coll_vasp",
+        "struct_suffix": "_vasp",
+        "description": "relaxation of the VASP ground state",
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "update_structure": true,
+        "params": {
+          "xc": "PBE",
+          "setups": "recommended",
+          "prec": "Accurate",
+          "ncore": 4,
+          "encut": 600,
+          "ediff": 1e-06,
+          "ismear": 1,
+          "sigma": 0.1,
+          "nelm": 200,
+          "kpts": 20,
+          "lmaxmix": 4,
+          "lcharg": false,
+          "lwave": false,
+          "isym": 0,
+          "ldau": true,
+          "ldautype": 2,
+          "ldaul": [
+            2,
+            -1
+          ],
+          "ldauu": [
+            4.0,
+            0
+          ],
+          "ldauj": [
+            0,
+            0
+          ],
+          "ldauprint": 2,
+          "lreal": "Auto"
+        },
+        "relax_params": {
+          "ibrion": 2,
+          "isif": 3,
+          "nsw": 100,
+          "ediffg": -0.01
+        },
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "coll_vasp_relaxed",
+        "stage": "coll",
+        "calculator": "vasp",
+        "description": "magnetic configurations of the relaxed structure",
+        "structure": "structure_vasp_relaxed.vasp",
+        "depends_on": [
+          "relax_vasp"
+        ],
+        "struct_suffix": "_vasp_relaxed",
+        "params": {
+          "xc": "PBE",
+          "setups": "recommended",
+          "prec": "Accurate",
+          "ncore": 4,
+          "encut": 600,
+          "ediff": 1e-06,
+          "ismear": 1,
+          "sigma": 0.1,
+          "nelm": 200,
+          "kpts": 20,
+          "lmaxmix": 4,
+          "lcharg": false,
+          "lwave": false,
+          "isym": 0,
+          "ldau": true,
+          "ldautype": 2,
+          "ldaul": [
+            2,
+            -1
+          ],
+          "ldauu": [
+            4.0,
+            0
+          ],
+          "ldauj": [
+            0,
+            0
+          ],
+          "ldauprint": 2,
+          "lreal": "Auto"
+        },
+        "supercell_size": 1,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "mc_vasp_relaxed",
+        "stage": "monte_carlo",
+        "calculator": "vasp",
+        "coll_instance": "coll_vasp_relaxed",
+        "struct_suffix": "_vasp_relaxed",
+        "configuration": "lowest",
+        "cutoff_radius": 4.1,
+        "control_group_size": 0.4,
+        "append_coupling_constants": true,
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "mc_backend": "vampire",
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "mae_vasp_relaxed",
+        "stage": "mae",
+        "calculator": "vasp",
+        "coll_instance": "coll_vasp_relaxed",
+        "struct_suffix": "_vasp_relaxed",
+        "configuration": "lowest",
+        "Nph": 4,
+        "Nth": 2,
+        "N_MAE": 4,
+        "standardize_cell": true,
+        "use_primitive_cell": true,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "params": {
+          "xc": "PBE",
+          "setups": "recommended",
+          "prec": "Accurate",
+          "ncore": 4,
+          "encut": 600,
+          "ediff": 1e-06,
+          "ismear": 1,
+          "sigma": 0.1,
+          "nelm": 200,
+          "kpts": 20,
+          "lmaxmix": 4,
+          "lcharg": false,
+          "lwave": false,
+          "isym": 0,
+          "ldau": true,
+          "ldautype": 2,
+          "ldaul": [
+            2,
+            -1
+          ],
+          "ldauu": [
+            4.0,
+            0
+          ],
+          "ldauj": [
+            0,
+            0
+          ],
+          "ldauprint": 2,
+          "lreal": "Auto"
+        },
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "host": "cluster",
+        "jobheader": "#!/bin/bash -l\n#SBATCH --nodes=1\n#SBATCH --ntasks=16\n#SBATCH --time=1-00:00:00\n#SBATCH --partition=YOUR_PARTITION\n#SBATCH --output=vasp-%j.out\n#SBATCH --error=vasp-%j.error\n",
+        "calculator_command": "module load vasp/6.4.3; mpirun vasp_std",
+        "environment_activate": "source /path/to/miniconda3/etc/profile.d/conda.sh && conda activate automag",
+        "environment_deactivate": "conda deactivate"
+      },
+      {
+        "id": "coll_relaxed",
+        "stage": "coll",
+        "calculator": "prophet_spin",
+        "description": "prophet on the VASP-relaxed structure",
+        "structure": "structure_vasp_relaxed.vasp",
+        "depends_on": [
+          "relax_vasp"
+        ],
+        "struct_suffix": "_relaxed",
+        "params": {
+          "model_path": null,
+          "head_path": null,
+          "device": "cpu",
+          "predict_moments": true
+        },
+        "supercell_size": 1,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash",
+        "host": "local"
+      },
+      {
+        "id": "mc_relaxed",
+        "stage": "monte_carlo",
+        "calculator": "prophet_spin",
+        "coll_instance": "coll_relaxed",
+        "struct_suffix": "_relaxed",
+        "configuration": "lowest",
+        "cutoff_radius": 4.1,
+        "control_group_size": 0.4,
+        "append_coupling_constants": true,
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "mc_backend": "vampire",
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash",
+        "host": "local"
+      },
+      {
+        "id": "mae_relaxed",
+        "stage": "mae",
+        "calculator": "prophet_spin",
+        "coll_instance": "coll_relaxed",
+        "struct_suffix": "_relaxed",
+        "configuration": "lowest",
+        "Nph": 4,
+        "Nth": 2,
+        "N_MAE": 4,
+        "standardize_cell": true,
+        "use_primitive_cell": true,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "params": {
+          "model_path": null,
+          "head_path": null,
+          "device": "cpu",
+          "predict_moments": true
+        },
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash",
+        "host": "local"
+      }
+    ]
+  }
+}

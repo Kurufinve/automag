@@ -4,10 +4,25 @@ poscar_file = 'Zr2AlFe3.vasp'
 # maximum supercell size for generating distinct magnetic configurations
 supercell_size = 1
 
-# choose the absolute values given to up and down spins
+# how to generate the magnetic configurations:
+#   'enumlib'  - automag's own driver (Wyckoff analysis + optional sublattice
+#                splitting), the historical default
+#   'pymatgen' - pymatgen's MagneticStructureEnumerator, which understands the
+#                extra strategies listed below
+enumeration_mode = 'enumlib'
+enumeration_strategies = ['ferromagnetic', 'antiferromagnetic']
+# cap on the number of configurations produced by the pymatgen backend
+max_orderings = None
+
+# choose the absolute values given to up and down spins.
+# OPTIONAL: when 'spin_values' is empty (or missing), the moments are taken
+# from pymatgen's DEFAULT_MAGMOMS (elements that are not tabulated stay
+# non-magnetic).  The same applies to 'magnetic_atoms', which is then derived
+# from the moments.
 spin_values = {
     'Fe': [5],
 }
+magnetic_atoms = ['Fe']
 
 # specify the calculator: 'vasp, 'qe', or 'fplo'
 

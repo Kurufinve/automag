@@ -13,7 +13,9 @@ calculator = 'vasp'
 struct_suffix = ''
 
 # from input import mode, poscar_file
-from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
 
 import os

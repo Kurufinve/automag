@@ -1,3 +1,17 @@
+# Python dependencies of automag.
+#
+#   python -m pip install -r requirements.txt
+#
+# Everything below covers the DFT calculators (VASP, Quantum ESPRESSO,
+# FHI-aims), the stage scripts and the pipeline itself.
+#
+# The Prophet-V1-Mag calculator (`prophet_spin`) is optional and heavy (torch):
+#
+#   python -m pip install -r requirements-prophet.txt
+#
+# Building the executable additionally needs `pyinstaller` (and `ninja` for
+# ./build.sh); see docs/INSTALL.md §5.
+
 ase
 bcrypt
 certifi

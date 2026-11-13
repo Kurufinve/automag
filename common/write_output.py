@@ -8,6 +8,23 @@ from pymatgen.core.structure import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 # from pymatgen.io.vasp import Incar, Outcar
 
+
+def _data_root():
+    """Directory that contains CalcFold, independent of the scheduler."""
+    for variable in ("AUTOMAG_WORKDIR", "AUTOMAG_PATH"):
+        value = os.environ.get(variable)
+        if value:
+            return value
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.basename(current) == "CalcFold":
+            return os.path.dirname(current)
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return os.getcwd()
+
 # default parameters for reading vasp output
 read_energy_convergence = False
 read_enthalpy = False
@@ -144,5 +161,5 @@ if calc_mode == None or calc_mode == 'coll':
 else:
     filename = f"{atoms_final.get_chemical_formula(mode='metal')}{struct_suffix}_{calc_mode}_{calculator}.txt"    
 
-with open(os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold', filename), 'a') as f:
+with open(os.path.join(_data_root(), 'CalcFold', filename), 'a') as f:
     f.write(output_line)

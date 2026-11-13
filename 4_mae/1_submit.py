@@ -28,21 +28,16 @@ import json
 
 cwd = os.getcwd()
 
-try:
-    input_file = sys.argv[1]
-    print(f'Using the {input_file} file as input')
-    try:
-        exec(f"from {input_file.split('.')[0]} import *")
-    except:
-        from input import *
-except IndexError:
-    print(f'Using the input.py file from folder: {cwd}')
-    from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
 
 import subprocess
 import numpy as np
 import shutil
+
+from ase.io import read as ase_read
 
 from itertools import product
 from pymatgen.io.vasp import Poscar
@@ -54,8 +49,28 @@ import spglib
 # The MAE modes (mae_theta_phi / mae_curve) are only implemented in the manual
 # submitter; the Fireworks path has no MAE support.
 from common.SubmitManual import SubmitManual
+from common.results import find_state, final_magmoms, initial_magmoms, resolve_configuration
+from common.magnetic import resolve_spin_values
+from common.sweep import expand_params, write_manifest
 if use_fireworks:
     print('MAE calculations are not implemented with Fireworks: using SubmitManual.')
+
+
+def fmt_kpts(kpts):
+    """Compact label for a k-point specification (scalar or explicit mesh)."""
+    if isinstance(kpts, (list, tuple)):
+        return 'x'.join(str(k) for k in kpts)
+    return str(kpts)
+
+
+def mae_directory(state_dir, params, tag):
+    """Directory of one MAE parameter set (mirrors SubmitManual.create_mae_dir)."""
+    index = next(i for i, x in enumerate(params['ldaul']) if x > 0)
+    U = np.round(float(params['ldauu'][index]), 1)
+    J = np.round(float(params['ldauj'][index]), 1)
+    return os.path.join(
+        state_dir, f"mae_U{U:.1f}_J{J:.1f}_K{fmt_kpts(params['kpts'])}"
+                   f"_EN{params['encut']}{tag}")
 
 
 def magnetization(fileOutCar):
@@ -83,64 +98,41 @@ input_structure = Structure.from_file(path_to_poscar)
 
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
-# path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
-if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
-    if not os.path.isdir(path_to_coll):
-        path_to_coll = path_to_automag + '/2_coll/'
-
-print(f'Path to the results from collinear calculations: {path_to_coll}')
-
-path_to_trials = path_to_coll + f'trials_{formula}/'
+# The collinear results may have been produced with a different calculator
+# than the one used for the MAE calculations (mixed-calculator pipeline).
+coll_calculator = globals().get('coll_calculator') or calculator
+configuration = resolve_configuration(
+    configuration, path_to_automag, formula, struct_suffix, coll_calculator)
+print(f'Reading the collinear results produced by: {coll_calculator}')
 
 
 # finding configuration and settings
 
-setting = 1
-magmom = None
-while os.path.isfile(f'{path_to_trials}/configurations{setting:03d}.txt'):
-    with open(f'{path_to_trials}/configurations{setting:03d}.txt', 'rt') as f:
-        for line in f:
-            values = line.split()
-            if values[0] == configuration:
-                magmom = [int(item) for item in values[1:]]
-                break
-        if magmom is not None:
-            break
-    setting += 1
+try:
+    collinear = find_state(path_to_automag, formula, configuration,
+                           struct_suffix, calculator=coll_calculator)
+except (KeyError, FileNotFoundError) as error:
+    print(f'WARNING: no 2_coll results for {formula}: {error}')
+    collinear = None
 
-trial_structure_file = f'{path_to_trials}/setting{setting:03d}.vasp'
+magmom = collinear['spins'] if collinear else None
+trial_structure_file = str(collinear['structure']) if collinear else None
+setting = int(collinear['setting']) if collinear else 1
 use_collinear_results = (magmom is not None) and os.path.isfile(trial_structure_file)
 
 if use_collinear_results:
     # create a pymatgen Structure object
     pmg_structure = Structure.from_file(trial_structure_file)
-    ase_structure = pmg_structure.to_ase_atoms()
 
-    # assigning magnetic moments to the atoms
-
-    calc_results = f"{ase_structure.get_chemical_formula(mode='metal')}{struct_suffix}_singlepoint_{calculator}.txt"
-
-    path_to_calc_results = path_to_automag + '/CalcFold/' + calc_results
-    full_magmom = None
-    print(f'Reading full magmoms for configuration {configuration} from file {path_to_calc_results}')
-    with open(path_to_calc_results, 'rt') as f:
-        lines = f.readlines()
-        i = 0
-        for line in lines:
-            values = line.split()
-            if values[0] == configuration:
-                print(f'Found configuration: {values[0]}')
-                magmoms_str = lines[i+1]
-                break
-            i += 1
-        full_magmom_str = magmoms_str.split('final_magmoms=')[1].strip().strip('[]')
-        number_magmoms = full_magmom_str.split()
-        full_magmom = [float(num) for num in number_magmoms]
-
-    if full_magmom is None:
-        raise IOError(f'Magmoms for configuration {configuration} not found.')
+    # Converged magnetic moments from the collinear run (may be absent if the
+    # 2_coll jobs are still running); in that case reconstruct them from the
+    # spin pattern.
+    full_magmom = final_magmoms(path_to_automag, formula, configuration,
+                                struct_suffix, coll_calculator)
+    if full_magmom is None or len(full_magmom) != len(pmg_structure):
+        full_magmom = initial_magmoms(pmg_structure, magmom,
+                                      globals().get('spin_values', {}))
+    full_magmom = [float(item) for item in full_magmom]
 
     print(f'Magnetic moments of all atoms for configuration {configuration}:')
     print(full_magmom)
@@ -157,13 +149,15 @@ else:
     # this way; antiferromagnetic ones need the 2_coll data.
     if not (configuration.startswith('fm') or configuration == 'nm'):
         raise IOError(
-            f'configuration {configuration} not found under {path_to_trials} and cannot be '
-            'generated from spin_values. Run 2_coll for this structure first.'
-        )
+            f'configuration {configuration} not found and cannot be '
+            'generated from spin_values. Run 2_coll for this structure first.')
     print(f'WARNING: no 2_coll results for {formula}; using the geometry file '
           f'{poscar_file} and spin_values for {configuration}.')
     pmg_structure = Structure.from_file(path_to_poscar)
     spin_values = globals().get('spin_values', {})
+    # Optional: fall back on pymatgen's DEFAULT_MAGMOMS before giving up.
+    spin_values = resolve_spin_values(
+        pmg_structure, spin_values, globals().get('magnetic_atoms'))
     nonmagnetic_magmom = float(globals().get('nonmagnetic_magmom', 0.0))
     if configuration == 'nm':
         full_magmom = [0.0] * len(pmg_structure)
@@ -235,13 +229,57 @@ with open(cell_info_name, 'wt') as f:
     json.dump(cell_info, f, indent=2)
 print(f'Cell information written to {cell_info_name}')
 
-# Submitting the calculations
-run = SubmitManual(processed_structure_name, mode='mae_theta_phi', fix_params=params, magmoms=standardized_magmom,  
-                     struct_suffix=struct_suffix, Nth = Nth, Nph = Nph,
-                     name=configuration, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
-                     environment_activate = environment_activate, environment_deactivate = environment_deactivate, 
-                     parallel_over_configurations = parallel_over_configurations)
-run.submit()
+# ---------------------------------------------------------------------------
+# Submitting the calculations.
+#
+# A parameter that is given as a list instead of a single number turns the
+# stage into a convergence study: every combination becomes an independent
+# MAE calculation (own directory, own reference calculation) and the pipeline
+# runs the sets in parallel like any other independent calculation.
+# ---------------------------------------------------------------------------
+processed_atoms = ase_read(processed_structure_name)
+calc_formula = processed_atoms.get_chemical_formula(mode='metal')
+state_dir = os.path.join(path_to_automag, 'CalcFold',
+                         f'{calc_formula}{struct_suffix}', calculator,
+                         configuration)
+
+sweep_sets = expand_params(params)
+if len(sweep_sets) > 1:
+    print(f'MAE convergence study over {len(sweep_sets)} parameter sets:')
+    for sweep_set in sweep_sets:
+        print(f'  {sweep_set.tag}: {sweep_set.label}')
+elif sweep_sets[0].values:
+    print(f'MAE convergence study: {sweep_sets[0].label}')
+
+set_directories = []
+for sweep_set in sweep_sets:
+    run = SubmitManual(processed_structure_name, mode='mae_theta_phi',
+                       fix_params=sweep_set.params, magmoms=standardized_magmom,
+                       struct_suffix=struct_suffix, Nth = Nth, Nph = Nph,
+                       name=configuration, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
+                       environment_activate = environment_activate, environment_deactivate = environment_deactivate,
+                       parallel_over_configurations = parallel_over_configurations,
+                       mae_tag=sweep_set.tag)
+    run.submit()
+
+    # Remember the settings of this set next to its calculations, so that the
+    # post-processing scripts do not have to guess them.
+    set_dir = mae_directory(state_dir, sweep_set.params, sweep_set.tag)
+    os.makedirs(set_dir, exist_ok=True)
+    set_directories.append(set_dir)
+    with open(os.path.join(set_dir, 'parameters.json'), 'wt') as handle:
+        json.dump({
+            'tag': sweep_set.tag,
+            'label': sweep_set.label,
+            'parameters': sweep_set.params,
+            'values': sweep_set.values,
+            'configuration': configuration,
+            'mae_dir': set_dir,
+        }, handle, indent=2, default=str)
+
+# Record which calculation directories belong to this run, so that the
+# analysis scripts ignore leftovers of an earlier parameter set.
+write_manifest(os.getcwd(), set_directories)
 
 
 

@@ -17,21 +17,20 @@ environment_activate = "source .venv/bin/activate"
 environment_deactivate = "source .venv/bin/deactivate"
 parallel_over_configurations = True
 struct_suffix = ''
+spin_values = {}            # optional: default_magmoms are used instead
+magnetic_atoms = []         # optional: derived from spin_values
+# 'enumlib' (original driver) or 'pymatgen' (MagneticStructureEnumerator)
+enumeration_mode = 'enumlib'
+enumeration_strategies = ['ferromagnetic', 'antiferromagnetic']
+max_orderings = None
 
 import os,sys
 
 cwd = os.getcwd()
 
-try:
-    input_file = sys.argv[1]
-    print(f'Using the {input_file} file as input')
-    try:
-        exec(f"from {input_file.split('.')[0]} import *")
-    except:
-        from input import *
-except IndexError:
-    print(f'Using the input.py file from folder: {cwd}')
-    from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
 
 import subprocess
@@ -44,6 +43,16 @@ from pymatgen.core.structure import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from datetime import datetime
 
+from common.external import require, run as run_external
+from common.magnetic import (pymatgen_configurations, resolve_magnetic_elements,
+                             resolve_spin_values)
+
+
+def _format_spin(value):
+    """Format a spin multiplicity (integral values keep their ``%2d`` look)."""
+    number = float(value)
+    return f'{int(round(number)):2d}' if number.is_integer() else f'{number:4.1f}'
+
 if use_fireworks:
     from common.SubmitFirework import SubmitFirework
 else:
@@ -51,6 +60,9 @@ else:
 
 
 def launch_enumlib(count, split):
+    # enumlib is optional: the paths come from external/codes.json
+    # (see common.external) and the default is 'enum.x' on PATH.
+    require("enumlib", "the search for the magnetic configurations (2_coll)")
     os.mkdir(f'enumlib{count}')
     os.chdir(f'enumlib{count}')
 
@@ -97,11 +109,13 @@ def launch_enumlib(count, split):
                 f.write(f'{symmetrized_structure.num_sites * 2:4d}\n')
 
     # process = subprocess.Popen('/home/michele/softs/enumlib/src/enum.x')
-    process = subprocess.Popen('enum.x')
+    # enumlib may hang on exotic inputs; it is killed after a minute (the same
+    # behaviour as the original Popen version).
     try:
-        process.wait(timeout=60)
+        run_external("enumlib", key="enum", timeout=60, check=False)
     except subprocess.TimeoutExpired:
-        process.kill()
+        print(f'enumlib did not finish within 60 s for split {split}; '
+              'continuing with the structures enumerated so far.')
 
     # solve a bug of enumlib which produces an extra new line
     with open('struct_enum.out', 'rt') as file:
@@ -127,7 +141,7 @@ def launch_enumlib(count, split):
                 line_number += offset + 1
 
     # os.system('/home/michele/softs/enumlib/aux_src/makeStr.py 1 500')
-    os.system('makeStr.py 1 500')
+    run_external("enumlib", key="makestr", args="1 500", check=False)
 
     for j in range(501):
         print(j)
@@ -207,6 +221,15 @@ structure = Structure.from_file(path_to_poscar)
 analyzer = SpacegroupAnalyzer(structure)
 symmetrized_structure = analyzer.get_symmetrized_structure()
 
+# spin_values and magnetic_atoms are optional: missing entries are filled
+# from pymatgen's DEFAULT_MAGMOMS (non-tabulated elements stay
+# non-magnetic).
+spin_values = resolve_spin_values(structure, spin_values, magnetic_atoms)
+magnetic_atoms = resolve_magnetic_elements(structure, spin_values,
+                                          magnetic_atoms)
+print(f'Magnetic elements: {magnetic_atoms}')
+print(f'Spin values: {spin_values}')
+
 # find out which atoms are magnetic
 for element in structure.composition.elements:
     if element.name in spin_values:
@@ -239,89 +262,104 @@ os.mkdir(f"trials_{structure.formula.replace(' ','')}{struct_suffix}")
 os.chdir(f"trials_{structure.formula.replace(' ','')}{struct_suffix}")
 
 # geometrical settings and respective lists of magnetic configurations
-lattices = [structure.lattice]
-coordinates = [structure.frac_coords]
-configurations = [[]]
+if enumeration_mode == 'pymatgen':
+    lattices, coordinates, configurations, enumeration_origins = \
+        pymatgen_configurations(
+            structure, spin_values=spin_values,
+            magnetic_atoms=magnetic_atoms,
+            strategies=enumeration_strategies,
+            max_orderings=max_orderings)
+    print(f'MagneticStructureEnumerator produced '
+          f'{sum(len(item) for item in configurations)} configuration(s) '
+          f'({len(lattices)} setting(s))')
+elif enumeration_mode == 'enumlib':
+    lattices = [structure.lattice]
+    coordinates = [structure.frac_coords]
+    configurations = [[]]
 
-# get the multiplicities of each Wyckoff position
-multiplicities = [len(item) for item in symmetrized_structure.equivalent_indices]
+    # get the multiplicities of each Wyckoff position
+    multiplicities = [len(item) for item in symmetrized_structure.equivalent_indices]
 
-wyckoff_magmoms = []
-equivalent_multipliers = []
-for multiplicity, wyckoff in zip(multiplicities, symmetrized_structure.equivalent_sites):
-    if wyckoff[0].specie.is_magnetic:
-        wyckoff_magmoms.append([1, 0, -1])
+    wyckoff_magmoms = []
+    equivalent_multipliers = []
+    for multiplicity, wyckoff in zip(multiplicities, symmetrized_structure.equivalent_sites):
+        if wyckoff[0].specie.is_magnetic:
+            wyckoff_magmoms.append([1, 0, -1])
 
-        if len(spin_values[wyckoff[0].specie.name]) == 2:
-            val1 = spin_values[wyckoff[0].specie.name][0]
-            val2 = spin_values[wyckoff[0].specie.name][1]
+            if len(spin_values[wyckoff[0].specie.name]) == 2:
+                val1 = spin_values[wyckoff[0].specie.name][0]
+                val2 = spin_values[wyckoff[0].specie.name][1]
+
+                if len(equivalent_multipliers) == 0:
+                    equivalent_multipliers.append(np.repeat(val1, multiplicity))
+                    equivalent_multipliers.append(np.repeat(val2, multiplicity))
+                else:
+                    new_equivalent_multipliers = []
+                    for multiplier in equivalent_multipliers:
+                        new_equivalent_multipliers.append(np.append(multiplier, np.repeat(val1, multiplicity)))
+                        new_equivalent_multipliers.append(np.append(multiplier, np.repeat(val2, multiplicity)))
+
+                    equivalent_multipliers = new_equivalent_multipliers
+
+            elif len(spin_values[wyckoff[0].specie.name]) == 1:
+                val1 = spin_values[wyckoff[0].specie.name][0]
+
+                if len(equivalent_multipliers) == 0:
+                    equivalent_multipliers.append(np.repeat(val1, multiplicity))
+                else:
+                    new_equivalent_multipliers = []
+                    for multiplier in equivalent_multipliers:
+                        new_equivalent_multipliers.append(np.append(multiplier, np.repeat(val1, multiplicity)))
+
+                    equivalent_multipliers = new_equivalent_multipliers
+
+            else:
+                raise ValueError('Max 2 spin values for each magnetic species.')
+
+        else:
+            wyckoff_magmoms.append([0])
 
             if len(equivalent_multipliers) == 0:
-                equivalent_multipliers.append(np.repeat(val1, multiplicity))
-                equivalent_multipliers.append(np.repeat(val2, multiplicity))
+                equivalent_multipliers.append(np.repeat(0, multiplicity))
             else:
                 new_equivalent_multipliers = []
                 for multiplier in equivalent_multipliers:
-                    new_equivalent_multipliers.append(np.append(multiplier, np.repeat(val1, multiplicity)))
-                    new_equivalent_multipliers.append(np.append(multiplier, np.repeat(val2, multiplicity)))
+                    new_equivalent_multipliers.append(np.append(multiplier, np.repeat(0, multiplicity)))
 
                 equivalent_multipliers = new_equivalent_multipliers
 
-        elif len(spin_values[wyckoff[0].specie.name]) == 1:
-            val1 = spin_values[wyckoff[0].specie.name][0]
+    # get all possible configurations without any splitting
+    for conf in product(*wyckoff_magmoms):
+        configuration = np.repeat(conf, multiplicities)
 
-            if len(equivalent_multipliers) == 0:
-                equivalent_multipliers.append(np.repeat(val1, multiplicity))
-            else:
-                new_equivalent_multipliers = []
-                for multiplier in equivalent_multipliers:
-                    new_equivalent_multipliers.append(np.append(multiplier, np.repeat(val1, multiplicity)))
+        for mult in equivalent_multipliers:
+            candidate_conf = np.multiply(configuration, mult).tolist()
 
-                equivalent_multipliers = new_equivalent_multipliers
+            # if the configuration is not NM, get the index of the first non-zero element
+            if len(np.nonzero(candidate_conf)[0]) > 0:
+                first_nonzero_index = np.nonzero(candidate_conf)[0][0]
 
-        else:
-            raise ValueError('Max 2 spin values for each magnetic species.')
+                # if the first non-zero spin is negative flip all spins
+                if candidate_conf[first_nonzero_index] < 0:
+                    candidate_conf = [-item for item in candidate_conf]
 
-    else:
-        wyckoff_magmoms.append([0])
+            # add to list of configurations for the current settings
+            if candidate_conf not in configurations[0]:
+                configurations[0].append(candidate_conf)
 
-        if len(equivalent_multipliers) == 0:
-            equivalent_multipliers.append(np.repeat(0, multiplicity))
-        else:
-            new_equivalent_multipliers = []
-            for multiplier in equivalent_multipliers:
-                new_equivalent_multipliers.append(np.append(multiplier, np.repeat(0, multiplicity)))
+    # split all possible combinations of Wyckoff positions
+    splits = []
+    possibilities = [[0, 1] if len(item) > 1 else [0] for item in wyckoff_magmoms]
+    for split in product(*possibilities):
+        if sum(split) != 0:
+            splits.append(split)
 
-            equivalent_multipliers = new_equivalent_multipliers
-
-# get all possible configurations without any splitting
-for conf in product(*wyckoff_magmoms):
-    configuration = np.repeat(conf, multiplicities)
-
-    for mult in equivalent_multipliers:
-        candidate_conf = np.multiply(configuration, mult).tolist()
-
-        # if the configuration is not NM, get the index of the first non-zero element
-        if len(np.nonzero(candidate_conf)[0]) > 0:
-            first_nonzero_index = np.nonzero(candidate_conf)[0][0]
-
-            # if the first non-zero spin is negative flip all spins
-            if candidate_conf[first_nonzero_index] < 0:
-                candidate_conf = [-item for item in candidate_conf]
-
-        # add to list of configurations for the current settings
-        if candidate_conf not in configurations[0]:
-            configurations[0].append(candidate_conf)
-
-# split all possible combinations of Wyckoff positions
-splits = []
-possibilities = [[0, 1] if len(item) > 1 else [0] for item in wyckoff_magmoms]
-for split in product(*possibilities):
-    if sum(split) != 0:
-        splits.append(split)
-
-for i, split in enumerate(splits):
-    launch_enumlib(i + 1, split)
+    for i, split in enumerate(splits):
+        launch_enumlib(i + 1, split)
+else:
+    raise ValueError(
+        f"Unknown enumeration_mode '{enumeration_mode}'. "
+        "Use 'enumlib' or 'pymatgen'.")
 
 # merge the first and second settings if they are equivalent
 if len(lattices) > 1:
@@ -370,7 +408,7 @@ for i, (lattice, frac_coords, confs) in enumerate(zip(lattices, coordinates, con
                 fim_count += 1
 
             f.write(f'{state:>6s}  ')
-            f.write(' '.join(f'{e:2d}' for e in conf_array[mask]))
+            f.write(' '.join(_format_spin(e) for e in conf_array[mask]))
             f.write('\n')
 
         if use_fireworks:

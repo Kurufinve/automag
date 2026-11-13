@@ -9,15 +9,39 @@ Class which takes care of writing input files for ab initio calculations.
 
 import numpy as np
 
+import json
 from copy import copy
 from ase.io import read
 from typing import Union
 from itertools import product
 import os
+import subprocess
 from ase.calculators.vasp import Vasp
 from pymatgen.core.periodic_table import Element
 
 from pymatgen.io.vasp.outputs import Oszicar
+
+from common.paths import code_root, data_root, frozen, helper_command
+from calculators import get_calculator
+
+#: ``run_all_*.sh`` scripts written by this process -> queued submit commands.
+#: Module level because one stage run creates one SubmitManual per state but the
+#: states share a single submit script.
+_SUBMIT_BUFFERS = {}
+#: Number of commands of each script that were already launched.
+_SUBMITTED_COUNTS = {}
+
+
+def reset_submission_state():
+    """Forget the buffered submit commands (used between in-process steps).
+
+    The buffers are module level because one stage run creates one
+    ``SubmitManual`` per configuration.  A step executed inside the automag
+    process therefore has to clear them, otherwise the second run of the same
+    stage in one process would believe everything was already submitted.
+    """
+    _SUBMIT_BUFFERS.clear()
+    _SUBMITTED_COUNTS.clear()
 
 
 # from common.utilities import atoms_to_encode #, VaspCalculationTask, WriteOutputTask, WriteChargesTask
@@ -40,9 +64,10 @@ class SubmitManual(object):
                  kpts_values: Union[list, range] = None, pert_values: Union[list, range] = None,
                  Nth = None, Nph = None, N_MAE = None, MAE_x = None, MAE_y = None, MAE_z = None, use_symmetries = False,
                  name: str = None, dummy_atom: str = None, dummy_position: int = None, 
-                 calculator: str = 'vasp', jobheader: str = '#!/bin/bash', calculator_command: str = None, 
-                 environment_activate: str = None, environment_deactivate: str = None, 
-                 parallel_over_configurations = True):
+                 calculator: str = 'vasp', jobheader: str = '#!/bin/bash', calculator_command: str = None,
+                 environment_activate: str = None, environment_deactivate: str = None,
+                 parallel_over_configurations = True, auto_submit: bool = None,
+                 mae_tag: str = ''):
         if mode == 'encut':
             assert encut_values is not None
             assert sigma_values is None
@@ -67,7 +92,7 @@ class SubmitManual(object):
             assert dummy_atom is not None
             assert dummy_position is not None
             self.var_params = []
-        elif mode == 'singlepoint':
+        elif mode in ('singlepoint', 'relax'):
             assert encut_values is None
             assert sigma_values is None
             assert kpts_values is None
@@ -109,28 +134,101 @@ class SubmitManual(object):
         self.MAE_z = MAE_z 
         self.MAE_y = MAE_y 
         self.use_symmetries = use_symmetries # if using crystal symmetries for MAE calculations
+        # suffix distinguishing the parameter sets of an MAE convergence study
+        self.mae_tag = mae_tag or ''
         self.calculator = calculator
+        # Resolve the code interface once; every code-specific action below
+        # goes through it instead of checking the calculator name.
+        self.interface = get_calculator(calculator, params=fix_params, command=calculator_command)
+        # Stage scripts use "mpirun vasp_std" as their historical default.
+        # For other calculators that default is meaningless, so let the
+        # interface provide the command instead.
+        if calculator_command == "mpirun vasp_std" and self.interface.name != "vasp":
+            # The interface was built with that command above, so it has to be
+            # dropped there too - otherwise run_command() hands the vasp
+            # default straight back and every non-VASP job runs "mpirun
+            # vasp_std" (prophet_spin, QE, FHI-aims, ...).
+            calculator_command = None
+            if getattr(self.interface, "command", None) == "mpirun vasp_std":
+                self.interface.command = None
+        # The writer emits the header verbatim followed by the next line, so a
+        # header without a trailing newline would glue them together
+        # ("#!/bin/bashcd /path/..."), silently losing the cd into the job dir.
+        if jobheader and not jobheader.endswith("\n"):
+            jobheader = jobheader + "\n"
         self.jobheader = jobheader
+        if calculator_command is None:
+            try:
+                calculator_command = self.interface.run_command()
+            except NotImplementedError:
+                calculator_command = None
         self.calculator_command = calculator_command
-        self.environment_activate = environment_activate
-        self.environment_deactivate = environment_deactivate
+        # The jobscript writers append these strings verbatim; None (a stage
+        # that does not need an environment) used to crash them with
+        # "write() argument must be str, not None".
+        self.environment_activate = environment_activate or ''
+        self.environment_deactivate = environment_deactivate or ''
         self.parallel_over_configurations = parallel_over_configurations
+        # Submit the generated run_all_*.sh scripts at the end of submit().
+        # The pipeline sets AUTOMAG_AUTO_SUBMIT=0 (from "submit":
+        # {"auto_submit": False}) to only write inputs.
+        if auto_submit is None:
+            flag = os.environ.get('AUTOMAG_AUTO_SUBMIT', '1').strip().lower()
+            auto_submit = flag not in ('0', 'false', 'no', 'off')
+        self.auto_submit = auto_submit
+
+        # When the runner asks for a task manifest (AUTOMAG_TASK_MANIFEST), the
+        # stage records every per-calculation job script instead of submitting
+        # run_all_*.sh as a whole.  The runner then starts the individual jobs
+        # (honouring max_parallel and priorities) and supervises them.
+        self.manifest_path = os.environ.get('AUTOMAG_TASK_MANIFEST') or None
+        #: directory of the MAE reference (``z``) job of the current run, used
+        #: to make every spin-rotation job depend on it.
+        self._mae_reference_dir = None
+        #: reference directories created by this stage run (see _record_task)
+        self._reference_dirs = set()
 
         self.write_charges_script_name = 'write_charges.py'
-        self.write_charges_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_charges_script_name}')
+        self.write_charges_script_path = os.path.join(str(code_root()), f'common/{self.write_charges_script_name}')
 
         self.write_magmoms_script_name = 'write_magmoms_input.py'
-        self.write_magmoms_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_magmoms_script_name}')
+        self.write_magmoms_script_path = os.path.join(str(code_root()), f'common/{self.write_magmoms_script_name}')
 
         self.write_output_script_name = 'write_output.py'
-        self.write_output_script_path = os.path.join(os.environ.get('AUTOMAG_PATH'), f'common/{self.write_output_script_name}')        
+        self.write_output_script_path = os.path.join(str(code_root()), f'common/{self.write_output_script_name}')        
+
+        # A jobscript runs under sh, where `source` is a special builtin: if the
+        # environment script is missing the shell aborts the whole job instead
+        # of carrying on, so nothing after the activation line runs (no
+        # calculation, no result writer, no sentinel).  Guard the common conda
+        # form with a file test.
+        self.environment_activate = self._guard_activation(self.environment_activate)
+
+    @staticmethod
+    def _guard_activation(text):
+        """Wrap a ``source <conda.sh> && conda activate <env>`` line in a test."""
+        if not text or 'conda.sh' not in text or text.lstrip().startswith('if '):
+            return text
+        tokens = text.split()
+        path = next((tok for tok in tokens if tok.endswith('conda.sh')), None)
+        if path is None:
+            return text
+        path = path.strip('"\'')
+        lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+        body = ' '.join(lines)
+        return f'if [ -f {path} ]; then {body}; fi'
 
     def submit(self):
+        """Write all inputs and (unless ``auto_submit`` is False) submit them."""
+        self._submit()
+        self._flush_submissions()
+
+    def _submit(self):
         params = copy(self.fix_params)
         if self.var_params:
 
             self.atoms = read(self.poscar_file)
-            calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
+            calcfold = os.path.join(str(data_root()), 'CalcFold')
             compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}")
             
             # creating compound_dir if it does not exist
@@ -208,7 +306,7 @@ class SubmitManual(object):
             state_dir = os.path.join(self.conv_value_dir, f'{name}')
         else:
             self.atoms = read(self.poscar_file)
-            calcfold = os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold')
+            calcfold = os.path.join(str(data_root()), 'CalcFold')
             compound_dir = os.path.join(calcfold, f"{self.atoms.get_chemical_formula(mode='metal')}{self.struct_suffix}")
             state_dir = os.path.join(compound_dir, f'{self.calculator}/{name}')
 
@@ -223,7 +321,7 @@ class SubmitManual(object):
             J = np.round(float(params['ldauj'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
             encut = params['encut']
             kpts = params['kpts']
-            mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}')
+            mae_dir = os.path.join(state_dir, f'mae_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}{self.mae_tag}')
             try:
                 os.mkdir(mae_dir)
             except:
@@ -340,6 +438,7 @@ class SubmitManual(object):
                 # writing input files
                 self.write_vasp_input_files(z_dir,'singlepoint',params)
                 # writing the two-step reference jobscript
+                self._reference_dirs.add(os.path.abspath(z_dir))
                 self.write_jobscript(jobdir=z_dir,
                                      jobscript_name='jobscript_mae_theta_phi',
                                      mode='mae_z',
@@ -353,24 +452,26 @@ class SubmitManual(object):
             if name == 'nm':
 
                 # write 
-                if self.calculator == "vasp":
-                    # only single-point run
-                    self.write_vasp_input_files(state_dir,'singlepoint',params)
+                self._write_inputs(state_dir, 'singlepoint', params)
 
                 # write jobscript
                 self.write_jobscript(jobdir=state_dir,mode='singlepoint')
 
             else:
 
-                if self.calculator == "vasp":
-                    # single-point run + recalc run
-                    self.write_vasp_input_files(state_dir,'singlepoint+recalc',params)
+                # single-point run + recalc run (VASP); other codes only need
+                # the single-point run.
+                self._write_inputs(state_dir, 'singlepoint+recalc', params)
 
+                job_mode = ('singlepoint+recalc'
+                            if self.interface.name == 'vasp'
+                            else 'singlepoint')
                 # write jobscript
-                self.write_jobscript(jobdir=state_dir,mode='singlepoint+recalc')
+                self.write_jobscript(jobdir=state_dir, mode=job_mode)
 
 
         elif self.mode == 'perturbations':
+            self._require_capability('ldau')
 
             self.ch_symbols = self.atoms.get_chemical_symbols()
             self.atom_ucalc = self.ch_symbols[self.dummy_position]
@@ -435,15 +536,14 @@ class SubmitManual(object):
         elif self.mode == 'encut' or self.mode == 'kgrid':
 
                 # write input files
-                if self.calculator == "vasp":
-                    # only single-point run
-                    self.write_vasp_input_files(state_dir,'singlepoint',params)
+                self._write_inputs(state_dir, 'singlepoint', params)
 
                 # write the jobscript
                 self.write_jobscript(jobdir=state_dir,mode=self.mode)
 
 
         elif self.mode == 'mae_theta_phi':
+            self._require_capability('noncollinear')
 
             ### Finding SAXIS that correspond to the lowest and highest energy
 
@@ -520,6 +620,7 @@ class SubmitManual(object):
 
 
         elif self.mode == 'mae_curve':
+            self._require_capability('noncollinear')
 
             mae_dir = create_mae_dir(state_dir)
 
@@ -582,8 +683,47 @@ class SubmitManual(object):
                                      calcname=f'_MAE_curve_{alpha_dir_name}',
                                      mode='nsc',write_output=False,keep_large_files=False)
 
+        elif self.mode == 'relax':
+            self._write_inputs(state_dir, 'singlepoint', params)
+            self.write_jobscript(jobdir=state_dir, mode='singlepoint',
+                                 write_output=False, keep_large_files=True)
+
         else:
             pass
+
+    def _require_capability(self, capability):
+        """Raise a clear error if the active calculator lacks ``capability``."""
+        if not getattr(self.interface, f'supports_{capability}', False):
+            raise NotImplementedError(
+                f"Mode '{self.mode}' requires the '{capability}' capability, "
+                f"which calculator '{self.calculator}' does not provide."
+            )
+
+    def _write_inputs(self, state_dir, innermode, params):
+        """Write calculator inputs through the active interface.
+
+        VASP keeps using the long-standing ``write_vasp_input_files`` code
+        path (including its LDA+U / non-collinear handling).  Any other
+        calculator is driven purely through its interface, so new codes can be
+        added without touching this class.
+        """
+        if self.interface.name == 'vasp':
+            self.write_vasp_input_files(state_dir, innermode, params)
+            return
+
+        # Non-VASP codes do not have a separate "recalc with final moments"
+        # step; a single self-consistent run is enough.
+        workdir = os.path.join(state_dir, 'singlepoint')
+        os.makedirs(workdir, exist_ok=True)
+        # Set the initial moments on the Atoms object itself; VASP-specific
+        # tags (ISPIN, LORBIT) are not added for other codes.
+        magmoms = np.array(self.magmoms)
+        if magmoms.any():
+            if 'initial_magmoms' in self.atoms.arrays:
+                del self.atoms.arrays['initial_magmoms']
+            self.atoms.set_initial_magnetic_moments(magmoms)
+        self.interface.write_input(self.atoms, workdir, dict(params))
+        self.write_initial_magmoms(os.path.join(workdir, 'initial_magmoms.txt'))
 
     def set_magmoms(self,params):
 
@@ -725,6 +865,43 @@ class SubmitManual(object):
 
         return
 
+    def _write_result_writer(self, f, quantity, calc_mode):
+        """Append the post-run output writer to a job script.
+
+        VASP keeps using the bundled ``write_output.py``; other calculators can
+        provide their own writer through ``CalculatorInterface.result_writer``.
+        """
+        if self.calculator == 'vasp':
+            path = self.write_output_script_path
+            # write_output.py reads sys.argv[4] unconditionally, so an
+            # empty structure suffix must still be passed as a token.
+            args = f'{quantity} vasp {calc_mode} "{self.struct_suffix}"'
+            script = os.path.basename(path)
+            copy_to_jobdir = not frozen()
+        else:
+            writer = self.interface.result_writer()
+            if writer is None:
+                return
+            path, args = writer
+            if args is None:
+                args = f'{self.calculator} {calc_mode} {self.struct_suffix}'
+            # Run the generic writer in place: it adds the automag checkout to
+            # sys.path itself, so it does not need to be copied into the job
+            # directory (and the surrounding package stays importable).
+            script = path
+            copy_to_jobdir = False
+        f.write(self.environment_activate)
+        f.write('\n')
+        if copy_to_jobdir:
+            f.write(f'cp {path} .\n')
+            f.write(f'python {script} {args}\n')
+        else:
+            relative = os.path.relpath(str(path), str(code_root()))
+            f.write(f'{helper_command(relative, args)}\n')
+        f.write('\n')
+        f.write(self.environment_deactivate)
+        f.write('\n')
+
 
     def write_jobscript(self,jobdir,jobdir_prev=None,jobscript_name='jobscript',calcname='',params=None,mode='singlepoint',write_output=True,keep_large_files=False):
 
@@ -771,35 +948,31 @@ class SubmitManual(object):
             f.write('\n')
             f.write(self.calculator_command)
             f.write('\n')
-            if not keep_large_files:
+            if not keep_large_files and self.interface.name == 'vasp':
                 f.write(f'rm WAVECAR CHG\n') # remove large files
 
             if mode == 'singlepoint+recalc':
-                # do recalculation with final magnetic moments 
+                # do recalculation with final magnetic moments
                 f.write(f'cd {jobdir}/recalc\n')
                 f.write('\n')
-                f.write(f'cp {self.write_magmoms_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                if self.calculator == "vasp":
-                    f.write(f'python {self.write_magmoms_script_name} vasp\n')
+                if frozen():
+                    f.write(f'{helper_command("common/write_magmoms_input.py", "vasp")}\n')
+                else:
+                    f.write(f'cp {self.write_magmoms_script_path} .\n')
+                    f.write(self.environment_activate)
+                    f.write('\n')
+                    if self.calculator == "vasp":
+                        f.write(f'python {self.write_magmoms_script_name} vasp\n')
                 f.write('\n')
                 f.write(self.environment_deactivate)
                 f.write('\n')
                 f.write(self.calculator_command)
                 f.write('\n')
-            if not keep_large_files:
+            if not keep_large_files and self.interface.name == 'vasp':
                 f.write(f'rm WAVECAR CHG\n') # remove large files
 
             if write_output:
-                f.write(f'cp {self.write_output_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
-                if self.calculator == "vasp":
-                    f.write(f'python {self.write_output_script_name} magmoms vasp None {self.struct_suffix}\n')
-                f.write('\n')
-                f.write(self.environment_deactivate)
-                f.write('\n')
+                self._write_result_writer(f, quantity='magmoms', calc_mode='None')
 
             f.write('\n')
             f.write('\n')
@@ -847,11 +1020,14 @@ class SubmitManual(object):
             # os.system(f'cp {self.write_charges_script_path} {state_dir_pert}')
                 with open(f'{job_top_dir}/{jobscript_name}','a') as f:
                     f.write(f'cd {job_top_dir}\n')
-                    f.write(f'cp {self.write_charges_script_path} .\n')
-                    f.write(self.environment_activate)
-                    f.write('\n')
-                    # if self.calculator == "vasp":
-                    f.write(f'python {self.write_charges_script_name} {self.dummy_position} {self.calculator}\n')
+                    if frozen():
+                        f.write(f'{helper_command("common/write_charges.py", f"{self.dummy_position} {self.calculator}")}\n')
+                    else:
+                        f.write(f'cp {self.write_charges_script_path} .\n')
+                        f.write(self.environment_activate)
+                        f.write('\n')
+                        # if self.calculator == "vasp":
+                        f.write(f'python {self.write_charges_script_name} {self.dummy_position} {self.calculator}\n')
                     f.write('\n')
                     f.write(self.environment_deactivate)            
                     f.write('\n')
@@ -862,16 +1038,25 @@ class SubmitManual(object):
                 f.write(f'cd {jobdir}/singlepoint\n')
                 f.write(self.calculator_command)
                 f.write('\n')
-                f.write(f'rm WAVECAR CHG\n') # remove large files
-                f.write(f'cp {self.write_output_script_path} .\n')
-                f.write(self.environment_activate)
-                f.write('\n')
+                if self.interface.name == 'vasp':
+                    f.write(f'rm WAVECAR CHG\n') # remove large files
                 if write_output:
-                    if self.calculator == "vasp":
-                        f.write(f'python {self.write_output_script_name} energy vasp {self.mode} {self.struct_suffix}\n')
-                    f.write('\n')
-                    f.write(self.environment_deactivate)
+                    self._write_result_writer(f, quantity='energy', calc_mode=self.mode)
                 f.write('\n')            
+
+            # The script above accumulates every convergence point, so it can
+            # only be submitted as a whole.  The pipeline starts and tracks one
+            # calculation at a time, so give every point its own jobscript.
+            with open(os.path.join(jobdir, 'jobscript'), 'w') as own:
+                own.write(self.jobheader)
+                own.write(f'cd {jobdir}/singlepoint\n')
+                own.write(self.calculator_command + '\n')
+                if self.interface.name == 'vasp':
+                    own.write('rm WAVECAR CHG\n')
+                if write_output:
+                    own.write(self._result_writer_text(quantity='energy',
+                                                       calc_mode=self.mode))
+                own.write('\n')
 
         elif mode == 'nsc':
 
@@ -993,11 +1178,141 @@ class SubmitManual(object):
                 exec_command = 'sh'
 
             submit_command = f'cd {jobdir}; {exec_command} {jobscript_name}\n'
-            write_submit_script(script_name,submit_command)
+            self._queue_submission(script_name, submit_command)
+            # convergence points have their own jobscript (see above)
+            record_name = ('jobscript' if mode in ('encut', 'kgrid')
+                           else jobscript_name)
+            self._record_task(jobdir, record_name, mode,
+                              jobdir_prev=jobdir_prev)
 
         return
 
-""" Helping functions """
+    # ------------------------------------------------------------------
+    # Task manifest (read by the pipeline runner)
+    # ------------------------------------------------------------------
+    def _result_writer_text(self, quantity, calc_mode):
+        """The result-writer lines of one calculation, as a string."""
+        import io
+
+        buffer = io.StringIO()
+        self._write_result_writer(buffer, quantity=quantity,
+                                  calc_mode=calc_mode)
+        return buffer.getvalue()
+
+    def _record_task(self, jobdir, jobscript_name, mode, jobdir_prev=None):
+        """Record one per-calculation job script in the task manifest.
+
+        The runner starts these jobs itself: one job per calculation, at most
+        ``max_parallel`` at a time, and it knows from the manifest which job
+        has to finish before another one may start (the 4_mae reference
+        calculation precedes the angle grid).
+        """
+        if not self.manifest_path:
+            return
+        jobdir = os.path.abspath(jobdir)
+        jobscript = os.path.join(jobdir, jobscript_name)
+        if not os.path.isfile(jobscript):
+            return
+        # A sentinel written by the job itself is the most reliable "this
+        # calculation is finished" marker for every calculator.
+        sentinel = os.path.join(jobdir, '.automag_done')
+        with open(jobscript, 'a') as handle:
+            handle.write(f'touch {sentinel}\n')
+        entry = {
+            'jobdir': jobdir,
+            'jobscript': jobscript_name,
+            'launcher': 'auto',
+            'mode': mode,
+            'kind': 'reference' if mode == 'mae_z' else 'calculation',
+            'depends_on': self._dependency_dir(jobdir_prev),
+            # The result markers of this calculator: OUTCAR for VASP, results.json
+            # for prophet_spin, ...  (see CalculatorInterface.result_markers).
+            'done': self._result_markers(jobdir, sentinel),
+        }
+        with open(self.manifest_path, 'a') as handle:
+            handle.write(json.dumps(entry) + '\n')
+
+    def _result_markers(self, jobdir, sentinel):
+        """Markers proving that one calculation finished (for the runner)."""
+        markers = [{'kind': 'file', 'path': sentinel}]
+        producer = getattr(self.interface, 'result_markers', None)
+        if producer is not None:
+            markers += [dict(spec) for spec in producer(jobdir)]
+        else:
+            markers.append({'kind': 'outcar',
+                            'path': os.path.join(jobdir, 'singlepoint',
+                                                 'OUTCAR')})
+        return markers
+
+    def _dependency_dir(self, jobdir_prev):
+        """Job directory a spin-rotation calculation depends on (or None)."""
+        if not jobdir_prev:
+            return None
+        candidate = os.path.abspath(str(jobdir_prev).rstrip('/'))
+        if os.path.basename(candidate) == 'singlepoint':
+            candidate = os.path.dirname(candidate)
+        return candidate if candidate in self._reference_dirs else None
+
+    # ------------------------------------------------------------------
+    # Job submission
+    # ------------------------------------------------------------------
+    def _queue_submission(self, script_name, submit_command):
+        """Append a submit command to a ``run_all_*.sh`` script.
+
+        The script is recreated (truncated) the first time this process touches
+        it, so commands left over from an earlier run are never resubmitted.
+        """
+        if script_name not in _SUBMIT_BUFFERS:
+            with open(script_name, 'w') as handle:
+                handle.write('#!/bin/sh\n')
+            try:
+                os.chmod(script_name, 0o755)
+            except OSError:
+                pass
+            _SUBMIT_BUFFERS[script_name] = []
+        _SUBMIT_BUFFERS[script_name].append(submit_command)
+        with open(script_name, 'a') as handle:
+            handle.write(submit_command)
+
+    def _flush_submissions(self):
+        """Launch the commands queued since the last flush."""
+        for script_name, commands in list(_SUBMIT_BUFFERS.items()):
+            done = _SUBMITTED_COUNTS.get(script_name, 0)
+            pending = commands[done:]
+            if not pending:
+                continue
+            _SUBMITTED_COUNTS[script_name] = len(commands)
+            if not self.auto_submit:
+                print(f'Inputs written; not submitting {script_name} '
+                      '(auto_submit = False).')
+                continue
+            # Submit only the new commands: the script itself accumulates all
+            # of them so that it can also be re-run by hand.
+            directory = os.path.dirname(script_name) or '.'
+            pending_script = os.path.join(
+                directory, 'submit_pending_' + os.path.basename(script_name))
+            with open(pending_script, 'w') as handle:
+                handle.write('#!/bin/sh\n')
+                handle.writelines(pending)
+            print(f'Submitting {len(pending)} calculation(s): {script_name}')
+            try:
+                result = subprocess.run(
+                    ['sh', os.path.basename(pending_script)], cwd=directory)
+            finally:
+                try:
+                    os.remove(pending_script)
+                except OSError:
+                    pass
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f'Submission of {script_name} failed with code '
+                    f'{result.returncode}. Check the scheduler output.')
+
+        if not _SUBMIT_BUFFERS and self.parallel_over_configurations is False:
+            print('WARNING: parallel_over_configurations = False, so no job '
+                  'was submitted. Submit the per-state job scripts manually or '
+                  'set it to True.')
+
 
 def write_submit_script(script_name,submit_command):
 

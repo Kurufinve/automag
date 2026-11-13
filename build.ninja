@@ -1,0 +1,61 @@
+# Build the single-file automag executable (see tools/build_executable.py).
+#
+# Prerequisites: ninja and pyinstaller in the active conda environment.
+#
+#     source /path/to/miniconda3/bin/activate automag
+#     conda install -c conda-forge ninja
+#     pip install pyinstaller
+#
+# Then, from the automag root:
+#
+#     ninja                    # -> dist/run_automag        (Linux/macOS)
+#                              # -> dist\run_automag.exe    (Windows)
+#     ninja external           # enumlib/ESpinS/VAMPIRE -> external/codes.json
+#     ninja all                # both
+#     ninja -t clean           # remove dist/run_automag and build/
+#     ninja bin                # only refresh build/deps.ninja
+#
+# Run the result anywhere:
+#
+#     AUTOMAG_EXE=/shared/bin/run_automag ./examples/vasp/run_pipeline.sh
+#
+# `dist/` and `build/` are git-ignored.
+
+ninja_required_version = 1.10
+
+python = python
+# Set to ".exe" on Windows (the examples target Linux clusters).
+exe_suffix =
+
+include build/deps.ninja
+
+rule scan_sources
+  command = $python tools/write_ninja_deps.py --output $out
+  description = SCAN automag sources
+  generator = 1
+
+rule pyinstaller
+  command = $python tools/build_executable.py --name run_automag
+  description = BUILD dist/run_automag$exe_suffix
+  pool = console
+
+rule build_external
+  command = $python tools/build_external.py
+  description = BUILD external codes (enumlib, ESpinS, VAMPIRE)
+  pool = console
+
+build build/deps.ninja: scan_sources | tools/write_ninja_deps.py
+  generator = 1
+
+build dist/run_automag$exe_suffix: pyinstaller $code_files $
+    | tools/build_executable.py build/deps.ninja
+
+# `ninja external` downloads and compiles the optional codes and writes
+# external/codes.json.  It is not part of `default`: the executable does not
+# need them, and a cluster usually provides them already.
+build external: build_external | tools/build_external.py common/external.py
+
+build bin: phony build/deps.ninja
+build executable: phony dist/run_automag$exe_suffix
+build all: phony executable external
+default executable

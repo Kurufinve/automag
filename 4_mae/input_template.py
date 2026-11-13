@@ -22,12 +22,14 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 struct_suffix = ''
 
 # choose the configuration to use for MAE calculation
-configuration = 'afm1'
+# 'lowest' = the most stable configuration found by 2_coll
+configuration = 'lowest'
 
 # try to find primitive cell from the given (super)cell taking into account the magnetic moments  
 standardize_cell = True
 
-# choose the absolute values given to up and down spins
+# choose the absolute values given to up and down spins.
+# OPTIONAL: when empty, pymatgen's DEFAULT_MAGMOMS are used.
 spin_values = {
     'Fe': [5],
 }

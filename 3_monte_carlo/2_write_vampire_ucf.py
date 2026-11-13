@@ -16,21 +16,17 @@ import os,sys
 
 cwd = os.getcwd()
 
-try:
-    input_file = sys.argv[1]
-    print(f'Using the {input_file} file as input')
-    try:
-        exec(f'from {input_file.split('.')[0]} import *')
-    except:
-        from input import *
-except IndexError:
-    print(f'Using the input.py file from folder: {cwd}')
-    from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
     
 import numpy as np
 
 from pymatgen.core.structure import Structure
+
+from common.results import find_trials_dir, resolve_configuration
+from common.magnetic import resolve_magnetic_elements
 
 # full path to poscar file
 rel_path_to_poscar = '/geometries/' + poscar_file
@@ -40,18 +36,13 @@ input_structure = Structure.from_file(path_to_poscar)
 
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
-# path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
-if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
-    if not os.path.isdir(path_to_coll):
-        path_to_coll = path_to_automag + '/2_coll/'
-
-print(f'Path to the results from collinear calculations: {path_to_coll}')
-
-path_to_trials = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/' + f'trials_{formula}{struct_suffix}/'
-if not os.path.exists(path_to_trials):
-    path_to_trials = path_to_coll + f'trials_{formula}{struct_suffix}/'
+# The collinear results may have been produced with a different calculator
+# than the one used here (mixed-calculator pipeline).
+coll_calculator = globals().get('coll_calculator') or calculator
+configuration = resolve_configuration(
+    configuration, path_to_automag, formula, struct_suffix, coll_calculator)
+path_to_trials = str(find_trials_dir(
+    path_to_automag, formula, struct_suffix, coll_calculator))
 print(f'Path to trials: {path_to_trials}')
 
 
@@ -77,15 +68,13 @@ materials = [0 if item >= 0 else 1 for item in magmom]
 # create a pymatgen Structure object
 structure = Structure.from_file(f'{path_to_trials}/setting{setting:03d}.vasp')
 
-# find out which atoms are magnetic
+# find out which atoms are magnetic: 'magnetic_atoms' is optional and
+# otherwise derived from spin_values / pymatgen's DEFAULT_MAGMOMS.
+magnetic_atoms = resolve_magnetic_elements(
+    structure, globals().get('spin_values'), globals().get('magnetic_atoms'))
 for element in structure.composition.elements:
-    if 'magnetic_atoms' not in globals():
-        element.is_magnetic = element.is_transition_metal
-    else:
-        if element.name in magnetic_atoms:
-            element.is_magnetic = True
-        else:
-            element.is_magnetic = False
+    element.is_magnetic = element.name in magnetic_atoms
+print(f'Magnetic elements: {magnetic_atoms}')
 
 non_magnetic_atoms = [element.symbol for element in structure.composition.elements if not element.is_magnetic]
 structure.remove_species(non_magnetic_atoms)
@@ -94,6 +83,19 @@ print(structure)
 center_indices, point_indices, offset_vectors, distances = structure.get_neighbor_list(cutoff_radius)
 
 # get thresholds for comparing atomic distances
+# 'distances_between_neighbors' and 'coupling_constants' are appended to
+# input.py by 1_coupling_constants.py when the Heisenberg model could be
+# fitted; without them the VAMPIRE unit cell cannot be written.
+missing = [name for name in ('distances_between_neighbors', 'coupling_constants')
+           if name not in globals()]
+if missing:
+    raise SystemExit(
+        'ERROR: ' + ' and '.join(missing) + ' not found in input.py.\n'
+        '       1_coupling_constants.py did not fit the Heisenberg model, so\n'
+        '       there are no coupling constants to write into vamp.ucf.\n'
+        '       See its output above (usually "SYSTEM OF N EQUATION(S) IN M\n'
+        '       UNKNOWNS"): raise supercell_size in the 2_coll stage, lower\n'
+        '       cutoff_radius, or drop the monte_carlo stage.')
 thresholds = [(a + b) / 2 for a, b in zip(distances_between_neighbors[:-1], distances_between_neighbors[1:])]
 thresholds = [0.0] + thresholds + [100.0]
 

@@ -1,0 +1,62 @@
+{
+  "PIPELINE": {
+    "workdir": ".",
+    "structure": "structure.vasp",
+    "struct_suffix": "",
+    "wait_timeout": 2592000,
+    "wait_interval": 30,
+    "wait_stable_seconds": 60,
+    "run": [
+      {
+        "id": "coll",
+        "stage": "coll",
+        "calculator": "prophet_spin",
+        "description": "collinear magnetic configurations with prophet",
+        "params": {
+          "model_path": null,
+          "head_path": null,
+          "device": "cpu",
+          "predict_moments": false
+        },
+        "supercell_size": 1,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "magnetic_atoms": [
+          "Fe"
+        ],
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash"
+      },
+      {
+        "id": "mae",
+        "stage": "mae",
+        "calculator": "prophet_spin",
+        "description": "MAE from the prophet energies",
+        "configuration": "lowest",
+        "Nph": 4,
+        "Nth": 2,
+        "N_MAE": 4,
+        "standardize_cell": true,
+        "use_primitive_cell": true,
+        "spin_values": {
+          "Fe": [
+            4
+          ]
+        },
+        "params": {
+          "model_path": null,
+          "head_path": null,
+          "device": "cpu",
+          "predict_moments": false
+        },
+        "use_fireworks": false,
+        "parallel_over_configurations": true,
+        "jobheader": "#!/bin/bash"
+      }
+    ]
+  }
+}

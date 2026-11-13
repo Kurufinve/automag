@@ -1,0 +1,28 @@
+PIPELINE:
+  workdir: .
+  structure: structure.vasp
+  struct_suffix: ''
+  wait_timeout: 2592000
+  wait_interval: 30
+  wait_stable_seconds: 60
+  run:
+  - id: coll
+    stage: coll
+    calculator: prophet_spin
+    description: magnetic configurations, moments predicted by prophet
+    params:
+      model_path: null
+      head_path: null
+      device: cpu
+      predict_moments: true
+      seed_mode: lut
+      magnetic_threshold: 0.5
+    supercell_size: 1
+    spin_values:
+      Fe:
+      - 4
+    magnetic_atoms:
+    - Fe
+    use_fireworks: false
+    parallel_over_configurations: true
+    jobheader: '#!/bin/bash'

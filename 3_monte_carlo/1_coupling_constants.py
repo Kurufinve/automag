@@ -17,16 +17,9 @@ import os,sys
 cwd = os.getcwd()
 struct_suffix = ''
 
-try:
-    input_file = sys.argv[1]
-    print(f'Using the {input_file} file as input')
-    try:
-        exec(f'from {input_file.split('.')[0]} import *')
-    except:
-        from input import *
-except IndexError:
-    print(f'Using the input.py file from folder: {cwd}')
-    from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
 
 import json
@@ -36,6 +29,9 @@ import matplotlib.ticker as ticker
 
 from pymatgen.core.structure import Structure
 
+from common.results import coll_bundle
+from common.magnetic import resolve_magnetic_elements
+
 # full path to poscar file
 rel_path_to_poscar = '/geometries/' + poscar_file
 path_to_automag = os.environ.get('AUTOMAG_PATH')
@@ -44,15 +40,11 @@ input_structure = Structure.from_file(path_to_poscar)
 
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
-# path to the folder with results from collinear calculations
-# path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}{struct_suffix}_{calculator}/'
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
-if not os.path.isdir(path_to_coll):
-    # path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}_{calculator}/'
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
-    if not os.path.isdir(path_to_coll):
-        path_to_coll = path_to_automag + '/2_coll/'
-
+# The collinear results may have been produced with a different calculator
+# than the one used here (mixed-calculator pipeline).
+coll_calculator = globals().get('coll_calculator') or calculator
+path_to_coll = str(coll_bundle(path_to_automag, formula, struct_suffix,
+                               coll_calculator))
 print(f'Path to the results from collinear calculations: {path_to_coll}')
 
 
@@ -63,15 +55,16 @@ states = None
 energies = None
 
 # read input files from previous step
+# 2_plot_results.py names the artefacts after the collinear calculator.
 for item in os.listdir(path_to_coll):
     rel_path = os.path.join(path_to_coll, item)
     if os.path.isfile(rel_path):
-        if item.startswith(f'{formula}_{calculator}_setting') and item.endswith('.vasp'):
+        if item.startswith(f'{formula}{struct_suffix}_{coll_calculator}_setting') and item.endswith('.vasp'):
             structure = Structure.from_file(rel_path)
-        if item.startswith(f'{formula}_{calculator}_states') and item.endswith('.txt'):
+        if item.startswith(f'{formula}{struct_suffix}_{coll_calculator}_states') and item.endswith('.txt'):
             with open(rel_path, 'rt') as f:
                 states = json.load(f)
-        if item.startswith(f'{formula}_{calculator}_energies') and item.endswith('.txt'):
+        if item.startswith(f'{formula}{struct_suffix}_{coll_calculator}_energies') and item.endswith('.txt'):
             with open(rel_path, 'rt') as f:
                 energies = json.load(f)
 
@@ -82,40 +75,62 @@ if states is None:
 if energies is None:
     raise IOError(f'No energies file found in {path_to_coll} folder.')
 
-# find out which atoms are magnetic
+# find out which atoms are magnetic: 'magnetic_atoms' is optional and
+# otherwise derived from spin_values / pymatgen's DEFAULT_MAGMOMS.
+magnetic_atoms = resolve_magnetic_elements(
+    structure, globals().get('spin_values'), globals().get('magnetic_atoms'))
 for element in structure.composition.elements:
-    if 'magnetic_atoms' not in globals():
-        element.is_magnetic = element.is_transition_metal
-    else:
-        if element.name in magnetic_atoms:
-            element.is_magnetic = True
-        else:
-            element.is_magnetic = False
+    element.is_magnetic = element.name in magnetic_atoms
+print(f'Magnetic elements: {magnetic_atoms}')
 
 # from eV/atom to total energy of the unit cell
 energies = structure.num_sites * np.array(energies)
 
 
-def system(configurations):
-    matrix = []
-    for item in configurations:
-        equation = [1]
-        for distance in unique_distances:
-            count = 0
-            for atom1, atom2, d in zip(center_indices, point_indices, distances):
-                if np.isclose(d, distance, atol=0.02):
-                    count += item[atom1] * item[atom2]
-            equation.append(-count // 2)
-        matrix.append(equation)
-    return np.array(matrix)
+
+# The number of unknowns grows with cutoff_radius (one coupling per neighbour
+# shell plus the reference energy), while the number of independent equations
+# is fixed by the magnetic configurations available.  When the system is
+# underdetermined the cutoff is shrunk by CUTOFF_STEP and refitted, never below
+# the nearest-neighbour shell.
+CUTOFF_STEP = 0.1
+
+
+def fit_model(cutoff):
+    """Least-squares fit of the Heisenberg model for one cutoff radius."""
+    center_indices, point_indices, offset_vectors, distances = \
+        structure.get_neighbor_list(cutoff)
+    shells, counts = np.unique(np.around(distances, 3), return_counts=True)
+
+    def system(configurations):
+        matrix = []
+        for item in configurations:
+            equation = [1]
+            for distance in shells:
+                count = 0
+                for atom1, atom2, d in zip(center_indices, point_indices, distances):
+                    if np.isclose(d, distance, atol=0.02):
+                        count += item[atom1] * item[atom2]
+                equation.append(-count // 2)
+            matrix.append(equation)
+        return np.array(matrix)
+
+    A = system(configurations_fit)
+    values = np.linalg.lstsq(A, energies_fit, rcond=None)
+    return {
+        'cutoff': float(cutoff),
+        'shells': shells,
+        'counts': counts,
+        'rank': int(np.linalg.matrix_rank(A)),
+        'unknowns': int(len(shells) + 1),
+        'values': values,
+        'system': system,
+        'A': A,
+    }
 
 
 non_magnetic_atoms = [element.symbol for element in structure.composition.elements if not element.is_magnetic]
 structure.remove_species(non_magnetic_atoms)
-center_indices, point_indices, offset_vectors, distances = structure.get_neighbor_list(cutoff_radius)
-
-# get unique distances
-unique_distances, counts = np.unique(np.around(distances, 3), return_counts=True)
 
 # create fit and control group
 fit_group_size = 1 - control_group_size
@@ -125,25 +140,31 @@ configurations_control = np.array(states[index:])
 energies_fit = energies[:index]
 energies_control = energies[index:]
 
-A = system(configurations_fit)
-values = np.linalg.lstsq(A, energies_fit, rcond=None)
+cutoff_radius_requested = float(cutoff_radius)
+nearest_distance = float(np.min(
+    structure.get_neighbor_list(cutoff_radius_requested)[3]))
 
-# DEBUG
-# all_states = [[1]]
-# for _ in range(structure.num_sites - 1):
-#     new = []
-#     for item in all_states:
-#         new.append(item + [1])
-#         new.append(item + [-1])
-#     all_states = new
-#
-# tmp = system(all_states)
-# pred = tmp @ values[0]
-# pred -= min(pred)
-# pred *= 1000      go to meV/unit cell
-# pred /= 40        go to meV/atom
+model = fit_model(cutoff_radius_requested)
+cutoff = cutoff_radius_requested
+while ((model['rank'] < model['unknowns'] or len(model['shells']) < 1)
+       and cutoff - CUTOFF_STEP >= nearest_distance):
+    print(f'WARNING: system of {model["rank"]} independent equation(s) in '
+          f'{model["unknowns"]} unknowns at cutoff_radius = {cutoff:.2f} A.')
+    cutoff = round(cutoff - CUTOFF_STEP, 10)
+    print(f'         reducing cutoff_radius to {cutoff:.2f} A and refitting')
+    model = fit_model(cutoff)
 
-B = system(configurations_control)
+unique_distances = model['shells']
+counts = model['counts']
+cutoff_radius_used = model['cutoff']
+if abs(cutoff_radius_used - cutoff_radius_requested) > 1e-9:
+    print(f'WARNING: cutoff_radius was reduced from {cutoff_radius_requested:.2f} '
+          f'to {cutoff_radius_used:.2f} A so that {len(unique_distances)} '
+          f'coupling(s) can be fitted with {model["rank"]} independent '
+          f'equation(s).')
+
+values = model['values']
+B = model['system'](configurations_control)
 predictions = B @ values[0]
 PCC = np.corrcoef(predictions, energies_control)
 
@@ -153,7 +174,7 @@ plt.xlabel(f'Heisenberg model energy (eV)')
 plt.ylabel(f'DFT energy (eV)')
 
 # print results
-if np.linalg.matrix_rank(A) == len(unique_distances) + 1:
+if model['rank'] == model['unknowns'] and len(unique_distances) >= 1:
     coupling_constants = values[0][1:] * 1.60218e-19
     print(f'distances between neighbors: {unique_distances.tolist()}')
     print(f'counts: {counts.tolist()}')
@@ -169,6 +190,11 @@ if np.linalg.matrix_rank(A) == len(unique_distances) + 1:
             f.write('\n# LINE ADDED BY THE SCRIPT 1_coupling_constants.py')
             f.write(f'\ncoupling_constants = {np.array2string(coupling_constants, precision=8, separator=", ")}\n')
 
+            if abs(cutoff_radius_used - cutoff_radius_requested) > 1e-9:
+                f.write('\n# LINE ADDED BY THE SCRIPT 1_coupling_constants.py')
+                f.write('\n# cutoff_radius was reduced to fit the Heisenberg model')
+                f.write(f'\ncutoff_radius = {cutoff_radius_used}\n')
+
     plt.scatter(predictions, energies_control, label=f'PCC: {PCC[0, 1]:.2f}')
     ax = plt.gca()
     ax.xaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
@@ -178,5 +204,20 @@ if np.linalg.matrix_rank(A) == len(unique_distances) + 1:
     plt.savefig('model.png', bbox_inches='tight')
     print(f'PCC: {PCC[0, 1]:.2f}')
 else:
-    print(f'ERROR: SYSTEM OF {np.linalg.matrix_rank(A)} INDEPENDENT EQUATION(S) '
-          f'IN {len(unique_distances) + 1} UNKNOWNS!')
+    # Still underdetermined at the smallest sensible cutoff: nothing can be
+    # passed to the Monte Carlo backend.
+    print(f'ERROR: SYSTEM OF {model["rank"]} INDEPENDENT EQUATION(S) '
+          f'IN {model["unknowns"]} UNKNOWNS!')
+    print(f'       cutoff_radius was already reduced from '
+          f'{cutoff_radius_requested:.2f} to {cutoff_radius_used:.2f} A '
+          f'(nearest neighbour is at {nearest_distance:.2f} A).')
+    print()
+    print('The Heisenberg model cannot be determined from these magnetic')
+    print('configurations, so there is nothing to pass to the Monte Carlo')
+    print('backend.  Ways out:')
+    print('  * generate more configurations: raise "supercell_size" in the')
+    print('    2_coll stage (e.g. 2 instead of 1), which multiplies the number')
+    print('    of magnetic atoms and orderings;')
+    print('  * lower "cutoff_radius" in the monte_carlo stage explicitly;')
+    print('  * or run the pipeline without the monte_carlo stage.')
+    raise SystemExit(1)

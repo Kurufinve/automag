@@ -17,21 +17,17 @@ import os,sys
 
 cwd = os.getcwd()
 
-try:
-    input_file = sys.argv[1]
-    print(f'Using the {input_file} file as input')
-    try:
-        exec(f'from {input_file.split('.')[0]} import *')
-    except:
-        from input import *
-except IndexError:
-    print(f'Using the input.py file from folder: {cwd}')
-    from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
 import numpy as np
 
 from ase.io import read
 from pymatgen.core.structure import Structure
+
+from common.results import find_trials_dir, resolve_configuration
+from common.magnetic import resolve_magnetic_elements
 
 # full path to poscar file
 rel_path_to_poscar = '/geometries/' + poscar_file
@@ -41,18 +37,13 @@ input_structure = Structure.from_file(path_to_poscar)
 
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
-# path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
-if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
-    if not os.path.isdir(path_to_coll):
-        path_to_coll = path_to_automag + '/2_coll/'
-
-print(f'Path to the results from collinear calculations: {path_to_coll}')
-
-path_to_trials = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/' + f'trials_{formula}{struct_suffix}/'
-if not os.path.exists(path_to_trials):
-    path_to_trials = path_to_coll + f'trials_{formula}{struct_suffix}/'
+# The collinear results may have been produced with a different calculator
+# than the one used here (mixed-calculator pipeline).
+coll_calculator = globals().get('coll_calculator') or calculator
+configuration = resolve_configuration(
+    configuration, path_to_automag, formula, struct_suffix, coll_calculator)
+path_to_trials = str(find_trials_dir(
+    path_to_automag, formula, struct_suffix, coll_calculator))
 print(f'Path to trials: {path_to_trials}')
 
 
@@ -71,6 +62,8 @@ while os.path.isfile(f'{path_to_trials}/configurations{setting:03d}.txt'):
 
 if magmom is None:
     raise IOError(f'configuration {configuration} not found.')
+
+from common.external import require, shell_command
 
 # assigning default values for parameters of biquadratic and Dzyalozhinskii-Moriya interactions
 if 'Ham_bij' not in globals():
@@ -96,15 +89,13 @@ chemical_formula = atoms.get_chemical_formula(mode='metal')
 
 seedname = f"{chemical_formula}_{configuration}"
 
-# find out which atoms are magnetic
+# find out which atoms are magnetic: 'magnetic_atoms' is optional and
+# otherwise derived from spin_values / pymatgen's DEFAULT_MAGMOMS.
+magnetic_atoms = resolve_magnetic_elements(
+    structure, globals().get('spin_values'), globals().get('magnetic_atoms'))
 for element in structure.composition.elements:
-    if 'magnetic_atoms' not in globals():
-        element.is_magnetic = element.is_transition_metal
-    else:
-        if element.name in magnetic_atoms:
-            element.is_magnetic = True
-        else:
-            element.is_magnetic = False
+    element.is_magnetic = element.name in magnetic_atoms
+print(f'Magnetic elements: {magnetic_atoms}')
 
 non_magnetic_atoms = [element.symbol for element in structure.composition.elements if not element.is_magnetic]
 structure.remove_species(non_magnetic_atoms)
@@ -146,6 +137,12 @@ with open(f'espins/{seedname}.inp1.mcin', 'w') as f:
 
 
     f.write(f'Shells_jij = {len(coupling_constants)}')
+
+# The ESpinS executable comes from the input file or from external/codes.json
+# (written by './build.sh --external'), including the pre/post commands such as
+# a module load or a conda activation.
+espins_run_command = globals().get('espins_run_command') or shell_command('espins')
+require('espins', 'the ESpinS Monte Carlo (3_monte_carlo)')
 
 # run 1st initialization step before mc simulation in ESpinS
 os.system(f"cd espins; {espins_run_command} -inp1 {seedname}")

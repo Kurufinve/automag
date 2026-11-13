@@ -19,6 +19,9 @@ poscar_file = 'Fe2O3-alpha_conventional.vasp'
 # name of the calculator with which singlepoint energies were computed
 calculator = 'vasp'
 
+# Monte Carlo backend run by 5_run_mc.py: 'vampire' or 'espins'
+mc_backend = 'espins'
+
 # command for running espins
 espins_run_command = 'module load intel2021/mkl/latest; export UCX_TLS=ud,sm,self; /home/dpoletaev/soft/ESpinS/mc.x'
 

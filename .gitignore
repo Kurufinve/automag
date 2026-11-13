@@ -7,3 +7,24 @@ __pycache__
 .hypothesis
 .qoder
 .zed
+
+# Pipeline run directories created inside the checkout.
+runs/
+/build/
+/dist/
+*.spec
+
+# Third-party codes downloaded and compiled by tools/build_external.py.
+/external/
+
+# Work directories created when an example is run in place.
+# The examples are meant to be copied somewhere else; nothing they produce
+# belongs in the repository.
+/examples/*/0_conv/
+/examples/*/1_lin_response/
+/examples/*/2_coll/
+/examples/*/2_relax/
+/examples/*/3_monte_carlo/
+/examples/*/4_mae/
+/examples/*/CalcFold/
+/examples/*/geometries/

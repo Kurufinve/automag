@@ -1,0 +1,19 @@
+# Optional: the Prophet-V1-Mag calculator (prophet_spin).
+#
+#   python -m pip install -r requirements-prophet.txt
+#
+# The model checkpoints are NOT installed from here - they live in
+# <automag>/models (prophet-v1-mag.pt, prophet-v1-mag-head.pt) and are baked into
+# the compiled binary.  This file only brings the Python side.
+#
+# Use it when you want to run the magnetic search without a DFT code
+# (examples/prophet, examples/prophet_moments, examples/prophet_mae,
+# examples/prophet_then_vasp) or to build a binary that understands
+# `calculator: prophet_spin`.
+#
+# A CPU-only torch is enough for cpu inference:
+#   python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+# The plain requirement below pulls the default (CUDA) build.
+
+torch
+prophet-mlip==1.0.1

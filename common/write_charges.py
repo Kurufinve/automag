@@ -9,6 +9,23 @@ from pymatgen.core.structure import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.io.vasp import Incar, Outcar
 
+
+def _data_root():
+    """Directory that contains CalcFold, independent of the scheduler."""
+    for variable in ("AUTOMAG_WORKDIR", "AUTOMAG_PATH"):
+        value = os.environ.get(variable)
+        if value:
+            return value
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.basename(current) == "CalcFold":
+            return os.path.dirname(current)
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return os.getcwd()
+
 # small helping function
 def is_numeric(value):
     try:
@@ -121,5 +138,5 @@ for pert_folder in sorted_pert_folders:
                         write_output = False
 
         if write_output:
-            with open(os.path.join(os.environ.get('AUTOMAG_PATH'), 'CalcFold', filename), 'a') as f:
+            with open(os.path.join(_data_root(), 'CalcFold', filename), 'a') as f:
                 f.write(f"{pert_value:5.2f}  {charges[0]}  {charges[1]}\n")

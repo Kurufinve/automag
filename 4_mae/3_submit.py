@@ -24,20 +24,14 @@ Nth = 10
 N_MAE = 20
 
 import os,sys
+import glob
 import json
 
 cwd = os.getcwd()
 
-try:
-    input_file = sys.argv[1]
-    print(f'Using the {input_file} file as input')
-    try:
-        exec(f"from {input_file.split('.')[0]} import *")
-    except:
-        from input import *
-except IndexError:
-    print(f'Using the input.py file from folder: {cwd}')
-    from input import *
+from common.input_loader import apply_stage_input
+
+apply_stage_input(globals())
 
 
 import subprocess
@@ -54,6 +48,8 @@ import spglib
 # The MAE modes (mae_theta_phi / mae_curve) are only implemented in the manual
 # submitter; the Fireworks path has no MAE support.
 from common.SubmitManual import SubmitManual
+from common.results import find_trials_dir, resolve_configuration
+from common.sweep import read_manifest, read_parameters
 if use_fireworks:
     print('MAE calculations are not implemented with Fireworks: using SubmitManual.')
 
@@ -89,16 +85,14 @@ input_structure = Structure.from_file(path_to_poscar)
 
 formula = input_structure.formula.replace(' ','')
 path_to_automag = os.environ.get('AUTOMAG_PATH')
-# path to the folder with results from collinear calculations
-path_to_coll = path_to_automag + '/2_coll/' + f'{formula}{struct_suffix}/{formula}_{calculator}/'
-if not os.path.isdir(path_to_coll):
-    path_to_coll = path_to_automag + '/2_coll/' + f'{formula}_{calculator}/'
-    if not os.path.isdir(path_to_coll):
-        path_to_coll = path_to_automag + '/2_coll/'
-
-print(f'Path to the results from collinear calculations: {path_to_coll}')
-
-path_to_trials = path_to_coll + f'trials_{formula}/'
+# The collinear results may have been produced with a different calculator
+# than the one used for the MAE calculations (mixed-calculator pipeline).
+coll_calculator = globals().get('coll_calculator') or calculator
+configuration = resolve_configuration(
+    configuration, path_to_automag, formula, struct_suffix, coll_calculator)
+path_to_trials = str(find_trials_dir(
+    path_to_automag, formula, struct_suffix, coll_calculator))
+print(f'Path to trials: {path_to_trials}')
 
 
 # finding configuration and settings
@@ -156,7 +150,7 @@ else:
     ase_structure = pmg_structure.to_ase_atoms()
 
     # assigning magnetic moments to the atoms
-    calc_results = f"{ase_structure.get_chemical_formula(mode='metal')}{struct_suffix}_singlepoint_{calculator}.txt"
+    calc_results = f"{ase_structure.get_chemical_formula(mode='metal')}{struct_suffix}_singlepoint_{coll_calculator}.txt"
 
     path_to_calc_results = path_to_automag + '/CalcFold/' + calc_results
     full_magmom = None
@@ -197,38 +191,91 @@ else:
     standardized_structure.to(filename=standardized_structure_name, fmt='POSCAR')
     standardized_magmom = [(0, 0, float(m)) for m in standardized_structure.site_properties['magmom']]
 
-U = np.round(float(params['ldauu'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
-J = np.round(float(params['ldauj'][next(i for i, x in enumerate(params['ldaul']) if x > 0)]),1)
-encut = params['encut']
-kpts = params['kpts']
-mae_file = f'MAE_theta_phi_{configuration}_U{U:.1f}_J{J:.1f}_K{fmt_kpts(kpts)}_EN{encut}.txt'
-if not os.path.isfile(mae_file):
-    raise IOError(f'{mae_file} not found: run 2_plot_results.py first.')
+def read_table(mae_file):
+    """Read MAE_x/y/z from the table written by 2_plot_results.py."""
+    values = {'MAE_x': None, 'MAE_y': None, 'MAE_z': None}
+    with open(mae_file, 'rt') as handle:
+        for line in handle:
+            for key in values:
+                if line.startswith(key + ':'):
+                    values[key] = np.array(
+                        json.loads(line[line.find('['):line.find(']') + 1]))
+    missing = [key for key, value in values.items() if value is None]
+    if missing:
+        raise IOError(f'Could not read {", ".join(missing)} from {mae_file}.')
+    return values
 
-MAE_x = MAE_y = MAE_z = None
-with open(mae_file, 'rt') as f:
-    for line in f:
-        if line.startswith('MAE_x:'):
-            MAE_x = np.array(json.loads(line[line.find('['):line.find(']')+1]))
-        elif line.startswith('MAE_y:'):
-            MAE_y = np.array(json.loads(line[line.find('['):line.find(']')+1]))
-        elif line.startswith('MAE_z:'):
-            MAE_z = np.array(json.loads(line[line.find('['):line.find(']')+1]))
 
-if MAE_x is None or MAE_y is None or MAE_z is None:
-    raise IOError(f'Could not read MAE_x/MAE_y/MAE_z from {mae_file}.')
+def mae_sets():
+    """Every MAE parameter set: (table, parameters, tag, directory).
 
-print(f'MAE_x (easy axis) = {MAE_x}')
-print(f'MAE_y (hard axis) = {MAE_y}')
-print(f'MAE_z             = {MAE_z}')
+    The list of sets comes from ``sweep_sets.json`` written by 1_submit.py, so
+    results of an earlier parameter set are never mixed in.  The historical
+    single-set case (no manifest) falls back to the stage parameters.
+    """
+    directories = read_manifest(os.getcwd())
+    if directories:
+        for directory in directories:
+            set_params, tag, label = read_parameters(directory)
+            summary = f'MAE_theta_phi_{configuration}{tag}.json'
+            table = None
+            if os.path.isfile(summary):
+                with open(summary, 'rt') as handle:
+                    table = (json.load(handle) or {}).get('table')
+            if not table or not os.path.isfile(table):
+                candidates = sorted(glob.glob(
+                    f'MAE_theta_phi_{configuration}{tag}_U*.txt'))
+                table = candidates[-1] if candidates else None
+            if table:
+                yield table, set_params or params, tag, directory
+        return
+
+    summaries = sorted(glob.glob(f'MAE_theta_phi_{configuration}*.json'))
+    for path in summaries:
+        with open(path, 'rt') as handle:
+            meta = json.load(handle)
+        table = meta.get('table')
+        if not table or not os.path.isfile(table):
+            tag = meta.get('tag', '')
+            candidates = sorted(glob.glob(
+                f'MAE_theta_phi_{configuration}{tag}_U*.txt'))
+            table = candidates[-1] if candidates else None
+        if table:
+            yield (table, meta.get('params') or params, meta.get('tag', ''),
+                   meta.get('mae_dir'))
+    if summaries:
+        return
+
+    index = next(i for i, x in enumerate(params['ldaul']) if x > 0)
+    U = np.round(float(params['ldauu'][index]), 1)
+    J = np.round(float(params['ldauj'][index]), 1)
+    name = (f'MAE_theta_phi_{configuration}_U{U:.1f}_J{J:.1f}'
+            f'_K{fmt_kpts(params["kpts"])}_EN{params["encut"]}.txt')
+    yield (name, params, '', None)
+
+
+sets = list(mae_sets())
+if not sets:
+    raise IOError('No MAE theta/phi tables found: run 2_plot_results.py first.')
+print(f'Submitting the MAE curves for {len(sets)} parameter set(s).')
 
 # Submitting the calculations
-run = SubmitManual(standardized_structure_name, mode='mae_curve', fix_params=params, magmoms=standardized_magmom,  
-                     struct_suffix=struct_suffix, N_MAE=N_MAE, MAE_x = MAE_x, MAE_y = MAE_y, MAE_z = MAE_z,
-                     name=configuration, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
-                     environment_activate = environment_activate, environment_deactivate = environment_deactivate, 
-                     parallel_over_configurations = parallel_over_configurations)
-run.submit()
+for mae_file, set_params, tag, mae_dir in sets:
+    if not os.path.isfile(mae_file):
+        raise IOError(f'{mae_file} not found: run 2_plot_results.py first.')
+    axes = read_table(mae_file)
+    print(f'  {tag or "single"}: MAE_x = {axes["MAE_x"]}, '
+          f'MAE_y = {axes["MAE_y"]}, MAE_z = {axes["MAE_z"]}')
+
+    run = SubmitManual(standardized_structure_name, mode='mae_curve', fix_params=set_params,
+                       magmoms=standardized_magmom,
+                       struct_suffix=struct_suffix, N_MAE=N_MAE,
+                       MAE_x = axes['MAE_x'], MAE_y = axes['MAE_y'], MAE_z = axes['MAE_z'],
+                       name=configuration, calculator = calculator, jobheader = jobheader, calculator_command = calculator_command,
+                       environment_activate = environment_activate, environment_deactivate = environment_deactivate,
+                       parallel_over_configurations = parallel_over_configurations,
+                       mae_tag=tag)
+    run.submit()
 
 
 
