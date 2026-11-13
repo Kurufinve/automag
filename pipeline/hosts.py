@@ -329,21 +329,33 @@ class Host:
         the automag process (``--once``).
         """
         line = self.wrap(command, cwd=cwd)
-        if log_path:
-            line = f"{line} >> {shlex.quote(str(log_path))} 2>&1"
+        # The redirect must cover the *whole* command, not just its last part:
+        # otherwise the backgrounded shell keeps the stdout/stderr pipe of the
+        # launcher open and communicate() waits for it until the calculation
+        # finishes ("timed out after 60 seconds" on every long job).
+        redirect = (f">> {shlex.quote(str(log_path))} 2>&1" if log_path
+                    else "> /dev/null 2>&1")
         if dry_run:
-            print(f"    [dry-run @{self.name}] {line} &")
+            print(f"    [dry-run @{self.name}] ( {line} ) {redirect} &")
             return "dry-run"
         if self.transport == "local":
             # A new session keeps the child alive after automag exits.
             process = subprocess.Popen(
-                ["/bin/bash", "-c", f"{line} & echo $!"],
+                ["/bin/bash", "-c", f"( {line} ) {redirect} & echo $!"],
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 start_new_session=True)
-            out, err = process.communicate(timeout=60)
+            try:
+                out, err = process.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                out, err = process.communicate()
+                raise HostError(
+                    f"could not start the job on {self.name}: "
+                    f"{(err or out or '').strip()[-300:]}")
             pid = (out or "").strip().splitlines()[-1:] or [""]
             return pid[0]
-        result = self.run(f"{line} > /dev/null 2>&1 & echo $!", timeout=60)
+        result = self.run(f"( {line} ) {redirect} & echo $!", timeout=30)
         return ((result.stdout or "").strip().splitlines() or [""])[-1]
 
     def check(self, timeout=20, dry_run=False):
