@@ -25,7 +25,7 @@ import numpy as np
 
 from pymatgen.core.structure import Structure
 
-from common.results import find_trials_dir, resolve_configuration
+from common.results import find_trials_dir, resolve_configuration, final_magmoms
 from common.magnetic import resolve_magnetic_elements
 
 # full path to poscar file
@@ -76,6 +76,10 @@ for element in structure.composition.elements:
     element.is_magnetic = element.name in magnetic_atoms
 print(f'Magnetic elements: {magnetic_atoms}')
 
+# The converged moments of the calculation are reported for the full cell,
+# while 'structure' keeps only the magnetic atoms - remember the mask.
+magnetic_mask = np.array([site.specie.name in magnetic_atoms
+                          for site in structure])
 non_magnetic_atoms = [element.symbol for element in structure.composition.elements if not element.is_magnetic]
 structure.remove_species(non_magnetic_atoms)
 print('Magnetic part of the structure')
@@ -132,3 +136,57 @@ with open('vampire/vamp.ucf', 'w') as f:
             if low_lim < distance < high_lim:
                 f.write(f'{i:3d}   {atom1:2d}  {atom2:2d}  '
                         f'{int(offset[0]):2d} {int(offset[1]):2d} {int(offset[2]):2d}   {coupling_constant: 6.4e}\n')
+
+# ---------------------------------------------------------------------------
+# vamp.mat carries the *converged* magnetic moment of every sublattice.  The
+# bundled template has 4.2 muB hard-coded, which is wrong for any real
+# calculation: take the moments of the chosen configuration from the 2_coll
+# results (the same source that 4_mae uses).
+# ---------------------------------------------------------------------------
+moments = final_magmoms(path_to_automag, formula, configuration,
+                        struct_suffix, coll_calculator)
+if moments is not None:
+    moments = np.asarray(moments, dtype=float)
+    if len(moments) == len(magnetic_mask):
+        moments = moments[magnetic_mask]
+    else:
+        print(f'WARNING: the 2_coll results list {len(moments)} moments while '
+              f'the cell has {len(magnetic_mask)} sites; using spin_values')
+        moments = None
+if moments is None:
+    # Fall back to the requested spin values (no calculation to read).
+    moments = np.array([float((globals().get('spin_values') or {}).get(
+        site.specie.symbol, [0])[0]) for site in structure])
+    print('WARNING: no converged moments found, vamp.mat uses the requested '
+          'spin values')
+
+material_ids = np.array(materials)
+number_of_materials = int(len(np.unique(material_ids)))
+with open('vampire/vamp.mat', 'w') as f:
+    f.write('#---------------------------------------------------\n')
+    f.write('# Number of Materials\n')
+    f.write('#---------------------------------------------------\n')
+    f.write(f'material:num-materials={number_of_materials}\n')
+    for index in range(number_of_materials):
+        atoms = np.where(material_ids == index)[0]
+        element = (structure[int(atoms[0])].specie.symbol if len(atoms)
+                   else sorted(magnetic_atoms)[0])
+        if len(atoms):
+            moment = float(np.mean(np.abs(moments[atoms])))
+        else:
+            moment = 0.0
+        suffix = 'up' if index % 2 == 0 else 'dn'
+        direction = '0,0,1' if index % 2 == 0 else '0,0,-1'
+        f.write('#---------------------------------------------------\n')
+        f.write(f'# Material {index + 1} {element}\n')
+        f.write('#---------------------------------------------------\n')
+        f.write(f'material[{index + 1}]:material-name={element}-{suffix}\n')
+        f.write(f'material[{index + 1}]:atomic-spin-moment={moment:.4f} !muB\n')
+        f.write(f'material[{index + 1}]:material-element={element}\n')
+        f.write(f'material[{index + 1}]:uniaxial-anisotropy-constant=0.0\n')
+        f.write(f'material[{index + 1}]:initial-spin-direction={direction}\n')
+summary = ', '.join(
+    f'{np.abs(moments[material_ids == index]).mean():.3f}'
+    for index in range(number_of_materials))
+print(f'vamp.mat written: {number_of_materials} material(s), '
+      f'moments {summary} muB')

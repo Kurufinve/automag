@@ -116,10 +116,18 @@ def run_vampire():
         settings.get("vampire_input_file"),
         "3_monte_carlo/vampire_input/input",
     )
-    material_file = resolve_file(
-        settings.get("vampire_material_file"),
-        "3_monte_carlo/vampire_input/vamp.mat",
-    )
+    # 2_write_vampire_ucf.py writes vampire/vamp.mat with the converged moments
+    # of the chosen configuration; the bundled template (4.2 muB) is only a
+    # fallback for projects made before that existed.
+    generated_material = vampire_dir / "vamp.mat"
+    if settings.get("vampire_material_file") or not generated_material.is_file():
+        material_file = resolve_file(
+            settings.get("vampire_material_file"),
+            "3_monte_carlo/vampire_input/vamp.mat",
+        )
+    else:
+        material_file = generated_material
+        print(f"Using the magnetic moments of the calculation: {material_file}")
 
     input_text = input_file.read_text()
     material_name = material_file.name
@@ -133,7 +141,8 @@ def run_vampire():
         unit_cell_name = match.group(1)
 
     shutil.copyfile(input_file, vampire_dir / "input")
-    shutil.copyfile(material_file, vampire_dir / material_name)
+    if material_file.resolve() != (vampire_dir / material_name).resolve():
+        shutil.copyfile(material_file, vampire_dir / material_name)
     if unit_cell_name != "vamp.ucf":
         shutil.copyfile(unit_cell, vampire_dir / unit_cell_name)
 

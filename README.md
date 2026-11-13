@@ -548,7 +548,9 @@ Result: `2_relax/relaxed_<state>.vasp` (and `.json`).
 ```
 
 `submit` computes the exchange couplings (with the PCC of the Heisenberg model
-as a quality measure) and writes the VAMPIRE unit cell / ESpinS inputs;
+as a quality measure) and writes the VAMPIRE unit cell / ESpinS inputs - the
+material file `vamp.mat` carries the **converged** magnetic moments of the
+chosen `2_coll` configuration, not the requested spin value;
 `run` executes the Monte Carlo code (`vampire_run_command`,
 `espins_run_command`, `vampire_input_file`, `vampire_material_file`,
 `espins_output_file`, `espins_output_converter`, `vampire_dir`, `espins_dir`,
