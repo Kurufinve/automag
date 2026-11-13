@@ -140,12 +140,23 @@ python /path/to/automag/run_automag.py --wait
 
 If the directory holds nothing but a structure (`structure.vasp`, `POSCAR`,
 `*.vasp`, `*.cif`, `*.poscar`), automag writes a default `input_automag.py` and
-continues with it: the magnetic search (`2_coll`) evaluated with the bundled
-Prophet-V1-Mag model - no DFT code, no cluster, no input file.  The generated
-file is an ordinary input file; edit it to change anything (a `2_coll` of this
-size takes a few minutes per configuration on CPU).  `4_mae` is **not** part of
-the default plan: the released Prophet weights are isotropic, so the
-anisotropy would be zero (see `examples/prophet_mae/` if you need the stage).
+continues with it - no DFT code, no cluster, no input file:
+
+* `2_coll` enumerates the magnetic configurations and evaluates them with the
+  bundled Prophet-V1-Mag model, **predicting the magnetic moments first**
+  (`"predict_moments": True`: the moment head gives the moments of every atom,
+  then the energy model is evaluated for them);
+* `3_monte_carlo` fits the Heisenberg couplings with whichever backend is
+  registered in `external/codes.json` - VAMPIRE or ESpinS (`vampire` is
+  preferred); if neither is available the stage is left out with a warning and
+  `./build.sh --external` installs them.
+
+The generated file is an ordinary input file; edit it to change anything.  A
+`2_coll` of this size takes a few minutes per configuration on CPU, and the
+couplings of a 10-atom cell come from few independent configurations - raise
+`supercell_size` for a real fit.  `4_mae` is **not** part of the default plan:
+the released Prophet weights are isotropic, so the anisotropy would be zero
+(see `examples/prophet_mae/` if you need the stage).
 
 ### Run modes
 

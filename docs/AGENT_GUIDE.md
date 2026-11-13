@@ -74,9 +74,14 @@ Do not read `CalcFold/`, `runs/`, `geometries/`, archives unless debugging.
 ### Bootstrap and the bundled models
 
 - `pipeline/bootstrap.py`: with no `input_automag.*` in the launch dir but a
-  structure file present, writes a default `input_automag.py` (plan:
-  `coll` with `prophet_spin`; **not** `4_mae` — the released model is isotropic
-  and MAE would be 0) and continues.  Never overwrites an existing file.
+  structure file present, writes a default `input_automag.py` (plan: `coll`
+  with `prophet_spin` and `predict_moments = True`, then `monte_carlo` with the
+  first available backend from `available_mc_backend()` — VAMPIRE, then ESpinS;
+  **not** `4_mae`, the released model is isotropic and MAE would be 0) and
+  continues.  Never overwrites an existing file.
+- `pipeline/cli.py::_needed_codes()` scopes the "external codes are not
+  available" warning to what the plan really uses (`enumlib` for `coll` unless
+  `enumeration_mode = "pymatgen"`, `mc_backend` for `monte_carlo`).
 - `models/` holds both Prophet checkpoints; `common.paths.models_dir()` /
   `model_file()` resolve them for the source tree and for the frozen bundle.
   Examples leave `model_path` unset (falls back to the bundle) and only allow

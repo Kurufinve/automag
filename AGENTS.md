@@ -21,9 +21,11 @@ Session state, decisions and known pitfalls: `docs/SESSION_HANDOFF.md` — read 
   (`PIPELINE` dict; priority `.py` → `.yaml` → `.json`). Stage settings load
   the same way (`input.{py,yaml,json}` via `common.input_loader`).
 - No config file in the launch dir → `pipeline/bootstrap.py` writes a default
-  `input_automag.py` when a structure file is present (plan: `coll` with the
-  bundled prophet_spin; `4_mae` is deliberately excluded — the released model is
-  isotropic and would give MAE = 0).
+  `input_automag.py` when a structure file is present: `coll` with the bundled
+  prophet_spin (`predict_moments = True`) plus `monte_carlo` with VAMPIRE or
+  ESpinS, whichever `common.external.available()` reports (`vampire` first;
+  no backend → the stage is left out with a warning).  `4_mae` is deliberately
+  excluded — the released model is isotropic and would give MAE = 0.
 - Run all: `cd <project dir> && python <automag>/run_automag.py --wait`;
   plan only: add `--dry-run`. Results (stage dirs, `CalcFold`) land in the
   launch dir; never write inside the automag checkout.

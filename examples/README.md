@@ -223,10 +223,12 @@ override them (`cpu` by default).  Inference on one core is slow, so give the
 job several cores (`--cpus-per-task`) or add `--gres=gpu:1` and use `cuda`.
 
 A directory that contains only a structure file needs no input file: automag
-writes a default `input_automag.py` - the plan of `prophet/` (`coll` with the
-bundled model; `4_mae` is left out because the model is isotropic, see
-`prophet_mae/` to add it deliberately) - and runs it.  Delete the generated
-file to get it again.
+writes a default `input_automag.py` and runs it - `coll` with the bundled model
+(moments predicted first, `predict_moments = True`) plus `monte_carlo` with
+VAMPIRE or ESpinS, whichever is registered in `external/codes.json`.  `4_mae`
+is left out because the model is isotropic (see `prophet_mae/` to add it
+deliberately); without any Monte Carlo backend the stage is dropped with a
+warning.  Delete the generated file to get it again.
 
 `relax`, `mae` and `lin_response` are VASP-specific: with a spin-lattice model
 the pipeline skips such instances with a warning (`on_unsupported`).

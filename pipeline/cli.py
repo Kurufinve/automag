@@ -143,13 +143,27 @@ def build_parser():
     return parser
 
 
+def _needed_codes(config):
+    """External programs the configured instances actually use."""
+    needed = set()
+    for inst in config.instances:
+        if inst.stage == "coll":
+            mode = str(inst.config.get("enumeration_mode", "")).lower()
+            if mode != "pymatgen":
+                needed.add("enumlib")
+        elif inst.stage == "monte_carlo":
+            needed.add(str(inst.config.get("mc_backend", "vampire")).lower())
+    return needed
+
+
 def _warn_unavailable_codes(config):
-    """Point out external codes the build step could not provide."""
+    """Point out external codes of this plan that the build could not provide."""
     from common import external
 
     overrides = config.common.get("external_codes") or None
+    needed = _needed_codes(config)
     broken = [name for name in external.CODES
-              if not external.available(name, overrides)]
+              if name in needed and not external.available(name, overrides)]
     if not broken:
         return
     print("WARNING: these external codes are not available: "

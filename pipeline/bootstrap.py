@@ -6,8 +6,11 @@ First-run helper: when automag is started in a directory that holds nothing but
 a structure file, write a default ``input_automag.py`` and use it.
 
 The generated file is the plan of ``examples/prophet``: the magnetic search
-(``2_coll``) evaluated with the bundled Prophet-V1-Mag model, which needs no DFT
-code and no cluster.  The magnetocrystalline anisotropy (``4_mae``) is left out
+(``2_coll``) and the Heisenberg couplings (``3_monte_carlo``) evaluated with the
+bundled Prophet-V1-Mag model, which needs no DFT code and no cluster.  The
+magnetic moments are predicted by the model itself (``predict_moments``), and
+the Monte Carlo backend is whichever of VAMPIRE / ESpinS is registered in
+``external/codes.json``.  The magnetocrystalline anisotropy (``4_mae``) is left out
 on purpose - the released Prophet weights are isotropic in the moment
 direction, so the MAE would be zero; add the stage (see
 ``examples/prophet_mae/``) only with a direction-sensitive model or a DFT code.
@@ -47,9 +50,10 @@ PROPHET_PARAMS = {{
     "model_path": os.environ.get("PROPHET_MODEL"),
     "head_path": os.environ.get("PROPHET_HEAD"),
     "device": os.environ.get("PROPHET_DEVICE", "cpu"),
-    # True = predict the moments first and evaluate the energy for them
+    # True = the moment head predicts the magnetic moments from the initial
+    # configuration, then the energy model is evaluated for those moments
     # (two-step mode, see examples/prophet_moments/).
-    "predict_moments": False,
+    "predict_moments": True,
 }}
 
 PROPHET_SUBMIT = {{
@@ -78,9 +82,53 @@ PIPELINE = {{
             "supercell_size": 1,
             **PROPHET_SUBMIT,
         }},
-    ],
+{mc_block}    ],
 }}
 
+'''
+
+
+#: Monte Carlo backends in the order they are preferred.
+MC_BACKENDS = ("vampire", "espins")
+
+
+def available_mc_backend():
+    """Return ``"vampire"``/``"espins"`` if the code is registered, else None."""
+    try:
+        from common import external
+    except Exception:  # noqa: BLE001 - bootstrap must never fail on this
+        return None
+    for name in MC_BACKENDS:
+        try:
+            if external.available(name):
+                return name
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def _mc_block(backend):
+    """The ``monte_carlo`` instance of the default plan (or a comment)."""
+    if backend is None:
+        return ('        # monte_carlo is not enabled: neither VAMPIRE nor ESpinS is\n'
+                '        # registered (see ./build.sh --external).  Add the stage\n'
+                '        # here once one of them is available.\n')
+    return f'''        {{
+            "id": "monte_carlo",
+            "stage": "monte_carlo",
+            "calculator": "prophet_spin",
+            "coll_instance": "coll",
+            "description": "Heisenberg couplings from the prophet energies",
+            "configuration": "lowest",
+            # With supercell_size = 1 there are few independent configurations,
+            # so the fit shrinks cutoff_radius to the nearest shell on its own.
+            "cutoff_radius": 4.1,
+            "control_group_size": 0.4,
+            "append_coupling_constants": True,
+            # The backend registered in external/codes.json.
+            "mc_backend": "{backend}",
+            **PROPHET_SUBMIT,
+        }},
 '''
 
 
@@ -111,11 +159,18 @@ def ensure_config(directory: Path | None = None, structure: Path | None = None):
 
     name = structure.name
     title = f"Prophet magnetic search for {name} (automag default plan)"
+    backend = available_mc_backend()
     target = directory / CONFIG_NAME
-    target.write_text(TEMPLATE.format(title=title, structure=name))
+    target.write_text(TEMPLATE.format(title=title, structure=name,
+                                     mc_block=_mc_block(backend)))
     print(f"No input file found: wrote a default plan to {target}")
     print(f"  structure: {name}")
-    print("  stages:    coll (prophet_spin)")
+    if backend:
+        print(f"  stages:    coll (prophet_spin), monte_carlo ({backend})")
+    else:
+        print("  stages:    coll (prophet_spin)")
+        print("  WARNING: neither VAMPIRE nor ESpinS is registered - the")
+        print("           monte_carlo stage is left out (./build.sh --external).")
     try:
         import prophet_spin  # noqa: F401
     except Exception:  # noqa: BLE001 - the build may lack torch/prophet_spin

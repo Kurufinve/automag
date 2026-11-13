@@ -337,7 +337,10 @@ AUTOMAG_EXE=/shared/bin/run_automag ./examples/vasp/run_pipeline_compiled.sh
 
 A directory with only a structure file works too: the binary writes its default
 `input_automag.py` and starts the Prophet magnetic search, using the models that
-travel inside the bundle.
+travel inside the bundle.  The plan predicts the magnetic moments first
+(`predict_moments = True`) and continues with `monte_carlo` using whichever of
+VAMPIRE / ESpinS is registered in `external/codes.json` (VAMPIRE is preferred;
+without either the stage is dropped with a warning).
 
 The example directories also ship `run_pipeline_slurm_compiled.sh`, which
 submits the binary as a SLURM job; see `examples/README.md`.
