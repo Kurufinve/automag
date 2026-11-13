@@ -28,3 +28,4 @@ runs/
 /examples/*/4_mae/
 /examples/*/CalcFold/
 /examples/*/geometries/
+/models/*
