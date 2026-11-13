@@ -24,9 +24,33 @@ import sys
 import numpy as np
 
 
+def _limit_threads():
+    """Honour ``PROPHET_THREADS`` so several calculations can run in parallel.
+
+    Without it torch uses every core for one calculation, and a machine with
+    many cores wastes them on a single job.
+    """
+    value = os.environ.get("PROPHET_THREADS")
+    if not value:
+        return
+    try:
+        count = int(value)
+    except ValueError:
+        print(f"WARNING: PROPHET_THREADS={value!r} is not an integer, ignored")
+        return
+    if count <= 0:
+        return
+    import torch
+
+    torch.set_num_threads(count)
+    print(f"torch limited to {count} thread(s) (PROPHET_THREADS)")
+
+
 def main():
     from ase.io import read
     from prophet_spin import SpinCalculator
+
+    _limit_threads()
 
     if not os.path.isfile("atoms.json"):
         raise FileNotFoundError("atoms.json not found in the calculation directory.")

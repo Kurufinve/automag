@@ -59,6 +59,11 @@ PROPHET_PARAMS = {{
 PROPHET_SUBMIT = {{
     "use_fireworks": False,
     "parallel_over_configurations": True,
+    # How many configurations are calculated at the same time.  Each of them
+    # limits torch to PROPHET_THREADS threads, so keep
+    # max_parallel * PROPHET_THREADS below the number of cores.
+    "max_parallel": 8,
+    "environment_activate": "export PROPHET_THREADS=8",
     # No batch directives: the calculations run as plain processes here.
     "jobheader": "#!/bin/bash",
 }}
