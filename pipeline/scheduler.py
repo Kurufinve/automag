@@ -48,6 +48,12 @@ HASH_EXCLUDED = {
     "description", "steps", "enabled", "reuse", "on_missing", "on_unsupported",
     "max_parallel", "max_parallel_tasks", "parallel", "max_attempts",
     "execution", "host", "work_dir", "state_file", "poll_interval",
+    # How a job is started, not what it computes: changing these must not
+    # invalidate finished results (a thread limit or a --gres used to wipe a
+    # two-day run).
+    "environment_activate", "environment_deactivate", "jobheader", "header",
+    "auto_submit", "use_fireworks", "parallel_over_configurations",
+    "exec_command",
 }
 
 
@@ -55,10 +61,15 @@ def step_key(instance, phase):
     return f"{instance.id}.{phase}"
 
 
+def config_settings(instance):
+    """The settings of an instance that decide what a step computes."""
+    return {key: value for key, value in instance.config.items()
+            if key not in HASH_EXCLUDED and not key.startswith("_")}
+
+
 def config_hash(instance, phase, scripts, host_name=None, structure=None):
     """Stable hash of everything that decides what a step computes."""
-    settings = {key: value for key, value in instance.config.items()
-                if key not in HASH_EXCLUDED and not key.startswith("_")}
+    settings = config_settings(instance)
     structure_stamp = None
     if structure is not None:
         try:
@@ -79,6 +90,19 @@ def config_hash(instance, phase, scripts, host_name=None, structure=None):
     }
     text = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha1(text.encode()).hexdigest()[:16]
+
+
+def _changed_settings(stored, instance):
+    """Keys whose values differ between the stored run and this one."""
+    if not stored:
+        return []
+    try:
+        old = json.loads(stored)
+    except (TypeError, ValueError):
+        return []
+    new = config_settings(instance)
+    keys = {key for key in set(old) | set(new) if old.get(key) != new.get(key)}
+    return sorted(keys)
 
 
 class Scheduler:
@@ -161,7 +185,14 @@ class Scheduler:
             if self.fresh or (row.get("config_hash") not in (None, digest)):
                 reason = ("--fresh was requested" if self.fresh
                           else "its settings changed")
+                changed = _changed_settings(row.get("settings"),
+                                            task.instance)
+                if changed:
+                    reason += " (" + ", ".join(changed) + ")"
                 print(f"  resetting step {task.label}: {reason}")
+                if changed and not self.fresh:
+                    print("           finished calculations on disk are kept "
+                          "and reused; only the step itself is re-run")
                 self.state.reset_step(task.label, keep_record=True)
                 execution.clear_manifest(task.instance.work_dir)
                 self._jobs.pop(task.label, None)
@@ -342,6 +373,8 @@ class Scheduler:
             task.label, "running", pipeline=str(self.config.path),
             instance=instance.id, stage=instance.stage, phase=task.phase,
             host=host.name, config_hash=self._hashes.get(task.key),
+            settings=json.dumps(config_settings(instance), sort_keys=True,
+                                default=str),
             detail={"mode": mode, "scripts": list(task.scripts),
                     "max_parallel": instance.max_parallel})
         if task.wait:

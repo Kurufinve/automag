@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS steps (
     updated_at  REAL,
     finished_at REAL,
     reset_at    REAL,
+    settings    TEXT,
     detail      TEXT
 );
 
@@ -99,6 +100,7 @@ ACTIVE_STATUSES = ("pending", "running", "waiting", "submitted")
 #: not touch an existing database, so they are migrated explicitly.
 MIGRATIONS = (
     ("steps", "reset_at", "REAL"),
+    ("steps", "settings", "TEXT"),
     ("tasks", "launcher", "TEXT"),
 )
 
@@ -246,7 +248,8 @@ class StateStore:
                 connection.execute(
                     "UPDATE steps SET status = 'pending', attempts = 0, "
                     "started_at = NULL, finished_at = NULL, reset_at = ?, "
-                    "updated_at = ?, detail = NULL WHERE step_key = ?",
+                    "updated_at = ?, detail = NULL, settings = NULL "
+                    "WHERE step_key = ?",
                     (now() if reset_at is None else reset_at, now(), step_key))
             else:
                 connection.execute("DELETE FROM steps WHERE step_key = ?",
