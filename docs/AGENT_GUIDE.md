@@ -500,6 +500,14 @@ Two variants exist and are built with the same script:
 | external | `--onedir --name run_automag-extmodels --no-models` | 5.4 GB | models from `PROPHET_MODEL` / `PROPHET_HEAD` |
 | small | `--onedir --name run_automag-noprophet --no-prophet --no-models` | 360 MB | none inside; external via `AUTOMAG_HELPER_PYTHON` |
 
+The smallest prophet-capable bundle comes from `tools/build_cpu_bundle.sh`
+(CPU wheel of the same torch version, checkpoints outside): 834 MB.  The CPU
+wheel is what matters - a CUDA wheel carries ~3 GB of GPU libraries and cannot
+be pruned afterwards.  `build_executable.py` then keeps only
+`torch_shm_manager` in `torch/bin`, strips `torch/lib/*.so` (never the
+NumPy/SciPy stack: OpenBLAS/libgfortran break on strip) and copies torch's
+`.py` sources so `inspect.getsource()` works in the frozen build.
+
 Slimming (`--slim`, default) only applies to non-prophet builds: pruning a
 torch bundle breaks `torch` at import (libtorch_cuda/nvidia) and the JIT of
 e3nn/TorchScript (needs .py sources and torch/bin, torch.distributed,

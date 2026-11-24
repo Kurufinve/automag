@@ -728,57 +728,27 @@ python tools/build_executable.py --no-prophet    # leave torch/prophet_spin out
 python tools/build_executable.py --no-models     # prophet inside, checkpoints outside
 ```
 
-Two ready-made variants differ only in where the Prophet checkpoints come from:
+The same code can be packaged five ways; they differ in the torch flavour and
+in whether the Prophet checkpoints are shipped inside:
 
 | build | size | prophet |
 | --- | --- | --- |
-| `--onedir --name run_automag` | ~5.7 GB | inside: `prophet_spin`, torch and the checkpoints (`_internal/models/`), nothing to configure |
-| `--onedir --name run_automag-extmodels --no-models` | ~5.4 GB | inside, but the checkpoints stay outside: `PROPHET_MODEL` / `PROPHET_HEAD` must point at the `.pt` files |
-| `--onedir --name run_automag-noprophet --no-prophet --no-models` | ~360 MB | absent from the bundle; can still evaluate it with an **external** interpreter (see below) |
+| `tools/build_cpu_bundle.sh` → `run_automag-cpu-extmodels` | **834 MB** | CPU torch inside, checkpoints outside (`PROPHET_MODEL`/`PROPHET_HEAD`) |
+| `tools/build_cpu_bundle.sh` → `run_automag-cpu` | 1.1 GB | CPU torch **and** checkpoints inside |
+| `--onedir --name run_automag` | 5.7 GB | CUDA torch, checkpoints inside |
+| `--onedir --name run_automag-extmodels --no-models` | 5.4 GB | CUDA torch inside, checkpoints outside |
+| `--onedir --name run_automag-noprophet --no-prophet --no-models` | 359 MB | absent from the bundle; `AUTOMAG_HELPER_PYTHON` runs it externally |
 
-A bundle with torch cannot be made small by deleting files: `torch` aborts at
-import when `libtorch_cuda.so`/`nvidia/` are removed, and e3nn/TorchScript need
-the Python sources and torch's helper binaries (`torch/bin`, `torch.distributed`,
-`torch.testing`, `_dynamo`).  CPU-only wheels (max 2.9.1 for cp312) recompile
-the model and hit the same JIT source problem, so the practical slim build is
-the **no-prophet** one plus an external interpreter:
+The CUDA wheels carry ~3 GB of GPU libraries that a CPU-only machine never
+touches.  Building from a **CPU wheel of the same torch version** keeps the
+numerics identical (verified: `4.3675` µB / `-67.00804901123047 eV` in both) and
+takes the bundle from 5.7 GB to ~1.1 GB; dropping `torch/bin`'s test binaries
+(-50 MB), stripping only `torch/lib/*.so` (-95 MB) and keeping the checkpoints
+outside brings it to **834 MB**.  `tools/build_cpu_bundle.sh` prepares that
+environment (venv, CPU torch, prophet packages) and runs both builds.
 
-```bash
-export AUTOMAG_HELPER_PYTHON=/path/to/env/bin/python     # env with torch + prophet_spin
-export PROPHET_MODEL=/path/to/models/prophet-v1-mag.pt
-export PROPHET_HEAD=/path/to/models/prophet-v1-mag-head.pt
-./dist/run_automag-noprophet/run_automag-noprophet --wait
-```
-
-With `AUTOMAG_HELPER_PYTHON` the generated job scripts run
-`PYTHONPATH=<bundle>/_internal <external python> <bundle>/_internal/common/...`
-for the prophet calculations and for `write_output_ase.py`, while the pipeline
-itself stays a 360 MB binary.  Without that variable the helpers run inside the
-binary as before.
-
-The first two understand `calculator: prophet_spin`.  The `--no-models` variant
-keeps the 275 MB of weights out of the bundle (handy when one copy of `models/`
-is shared over NFS); the `--no-prophet` variant is the small DFT-only build -
-it starts in a directory with just a structure too, but says plainly that it
-cannot run the generated prophet plan.
-
-What ends up inside:
-
-| part | notes |
-| --- | --- |
-| Python + libraries | its own interpreter, no conda needed at run time |
-| stage scripts | `0_conv_tests/`, `2_coll/`, `2_relax/`, `3_monte_carlo/`, `4_mae/`, ... (without the example data) |
-| pymatgen / ase data | `periodic_table.json`, `ase.io.db`, ... |
-| `models/*.pt` | both Prophet checkpoints (275 MB) |
-| `prophet_spin` + torch | bundled by default; `--no-prophet` removes them |
-| `external/codes.json` | the registry of enumlib / VAMPIRE / ESpinS, when present |
-
-Sizes: ~490 MB without `prophet_spin`, ~5.7 GB with it (torch).
-
-## Run the compiled version
-
-The bundle is self-contained: it brings its own Python and libraries and runs
-**without the conda environment it was built in**, and without the sources:
+Do not strip the NumPy/SciPy stack (OpenBLAS, libgfortran): their wheels rely on
+ELF segment alignment and stop loading after `strip`.
 
 ```bash
 # on any machine with the same OS/arch, no python and no conda needed

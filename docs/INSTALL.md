@@ -375,8 +375,37 @@ Three ready-made variants:
 | `--onedir --name run_automag` | ~5.7 GB | inside, models included |
 | `--onedir --name run_automag-extmodels --no-models` | ~5.4 GB | inside, models from `PROPHET_MODEL` / `PROPHET_HEAD` |
 | `--onedir --name run_automag-noprophet --no-prophet --no-models` | ~360 MB | absent (DFT calculators; prophet via `AUTOMAG_HELPER_PYTHON`) |
+| `tools/build_cpu_bundle.sh` → `run_automag-cpu` | ~1.1 GB | CPU torch and checkpoints inside |
+| `tools/build_cpu_bundle.sh` → `run_automag-cpu-extmodels` | **~834 MB** | CPU torch inside, checkpoints outside |
 
-### 5.2 A small binary that can still use Prophet
+### 5.1 The small CPU bundle
+
+A CPU-only wheel of the *same* torch version produces bit-identical numbers and
+saves ~3 GB of GPU libraries; that is how the 5.7 GB bundle becomes 1.1 GB, and
+834 MB once the checkpoints stay outside and torch's test binaries and symbols
+are dropped:
+
+```bash
+tools/build_cpu_bundle.sh --no-models     # 834 MB, checkpoints outside
+tools/build_cpu_bundle.sh                 # also builds the 1.1 GB variant
+tools/build_cpu_bundle.sh --setup-only    # just prepare ~/.cache/automag/cpuenv
+```
+
+The script creates a venv (`AUTOMAG_CPU_ENV`, default `~/.cache/automag/cpuenv`),
+installs `torch==$AUTOMAG_TORCH_CPU+cpu` (default 2.14.1; the CPU index may not
+list it, then the wheel is fetched from `download-r2.pytorch.org`), copies
+`prophet`/`prophet_spin` from the reference environment and runs PyInstaller
+from that venv.  Keep the CPU wheel version equal to the one in your working
+environment: the checkpoints were exported with it and TorchScript recompiles
+(and then needs the original sources) when the version differs.
+
+`build_executable.py` finishes the job: it keeps only `torch_shm_manager` in
+`torch/bin` (-50 MB), strips `torch/lib/*.so` (-95 MB) and copies the `.py`
+sources of torch so `inspect.getsource()` works for torch's config module and
+TorchScript.  Never strip the NumPy/SciPy stack - OpenBLAS and libgfortran stop
+loading once their ELF alignment is touched.
+
+### 5.2 A 360 MB binary that can still use Prophet
 
 Pruning the torch bundle does not work: `torch` aborts at import when
 `libtorch_cuda.so`/`nvidia/` are missing, and e3nn/TorchScript need the Python

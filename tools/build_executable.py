@@ -159,7 +159,7 @@ del obj""",
 #: Runtime hooks: code that runs inside the frozen application before the
 #: program starts.  ``pyi_rth_scipy_stats.py`` works around pyinstaller#7992
 #: (``scipy.stats`` cannot be imported in a frozen build otherwise).
-RUNTIME_HOOKS = ("tools/pyi_rth_scipy_stats.py",)
+RUNTIME_HOOKS = ("tools/pyi_rth_scipy_stats.py", "tools/pyi_rth_sources.py")
 
 #: Heavy optional stacks.  They are in the build environment only because some
 #: other package depends on them - ``prophet_spin`` pulls in ~5 GB of
@@ -324,8 +324,10 @@ def build_command(args):
 
     if args.icon:
         command += ["--icon", args.icon]
-    if args.strip:
-        command += ["--strip"]
+    # PyInstaller's --strip also strips the OpenBLAS libraries that scipy and
+    # numpy ship, which corrupts them ("ELF load command address/offset not
+    # properly aligned").  strip_binaries() below does the same job selectively.
+
     # prophet_spin is only bundled on request (see EXCLUDED_MODULES).
     if args.prophet and _importable("prophet_spin"):
         command += ["--hidden-import", "prophet_spin"]
@@ -368,6 +370,82 @@ def _package_dir(package):
     """Directory of an importable package (for --add-data)."""
     module = __import__(package)
     return Path(module.__file__).parent
+
+
+def copy_package_sources(output, package):
+    """Copy the ``.py`` files of a package next to the frozen copy.
+
+    ``inspect.getsource`` (used by torch's config module and by TorchScript in
+    e3nn/torch_geometric) reads the file from disk; PyInstaller only ships the
+    compiled modules inside the PYZ archive.  The sources are ~30 MB, the
+    binaries are already collected by PyInstaller.
+    """
+    import shutil
+
+    try:
+        module = __import__(package)
+    except ImportError:
+        return
+    source = Path(module.__file__).parent
+    target = output / "_internal" / package
+    copied = 0
+    for path in source.rglob("*.py"):
+        relative = path.relative_to(source)
+        destination = target / relative
+        if destination.exists():
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+        copied += 1
+    if copied:
+        print(f"Copied {copied} source file(s) of {package} for inspect.getsource()")
+
+
+def prune_torch_bin(output):
+    """Keep only ``torch_shm_manager`` in ``torch/bin``.
+
+    The wheel ships protoc and a dozen test executables (``test_api`` alone is
+    15 MB); torch only needs the shared-memory manager at runtime.
+    """
+    binary = output / "_internal" / "torch" / "bin"
+    if not binary.is_dir():
+        return
+    removed = 0
+    for item in binary.iterdir():
+        if item.is_file() and item.name != "torch_shm_manager":
+            removed += item.stat().st_size
+            item.unlink()
+    if removed:
+        print(f"Removed {removed // 1024 // 1024} MiB of torch/bin tools")
+
+
+def strip_binaries(output):
+    """Run ``strip --strip-unneeded`` over the bundled shared libraries.
+
+    ``libtorch_cpu.so`` alone loses ~90 MB of symbols this way; without it the
+    frozen torch cannot get near the size of the ``nuitka``-built USPEX core.
+    """
+    import shutil
+    import subprocess
+
+    strip = shutil.which("strip")
+    if strip is None:
+        print("strip not found, skipping symbol removal")
+        return
+    total = 0
+    # Only torch's own libraries: stripping the NumPy/SciPy stack (OpenBLAS,
+    # libgfortran) breaks the ELF segment alignment those wheels require.
+    library_dir = output / "_internal" / "torch" / "lib"
+    for path in sorted(library_dir.glob("*.so*")):
+        if not path.is_file() or path.stat().st_size < 1_000_000:
+            continue
+        before = path.stat().st_size
+        result = subprocess.run([strip, "--strip-unneeded", str(path)],
+                                capture_output=True)
+        if result.returncode == 0:
+            total += before - path.stat().st_size
+    if total:
+        print(f"Stripped {total // 1024 // 1024} MiB from shared libraries")
 
 
 def ensure_torch_bin(output):
@@ -418,8 +496,10 @@ def main(argv=None):
     parser.add_argument("--name", default="run_automag")
     parser.add_argument("--onedir", dest="onefile", action="store_false",
                         help="build a directory bundle instead of a single file")
-    parser.add_argument("--strip", action="store_true",
-                        help="strip the binary (Linux/macOS only)")
+    parser.add_argument("--strip", dest="strip", action="store_true",
+                        default=True,
+                        help="strip the binary (Linux/macOS only, --no-strip "
+                             "disables it)")
     parser.add_argument("--icon", default=None)
     parser.add_argument("--clean", action="store_true",
                         help="remove build/ and dist/ and exit")
@@ -431,6 +511,8 @@ def main(argv=None):
                               "(default).  With --no-models the bundle expects "
                               "PROPHET_MODEL / PROPHET_HEAD (or an explicit "
                               "'model_path' in the stage params) at run time"))
+    parser.add_argument("--no-strip", dest="strip", action="store_false",
+                        help="do not run strip over the bundled shared libraries")
     parser.add_argument("--slim", action=argparse.BooleanOptionalAction,
                         default=True,
                         help=("drop the GPU stack and development files "
@@ -461,10 +543,16 @@ def main(argv=None):
 
     suffix = ".exe" if os.name == "nt" else ""
     output = ROOT / "dist" / (args.name + suffix)
-    if args.slim and not args.prophet and not args.onefile:
+    if args.slim and not args.onefile:
+        # The pruned paths are safe for a CPU-only torch as well (there is no
+        # nvidia/ or triton/ in such a wheel); torch/bin is restored below.
         prune_bundle(output)
     if args.prophet and not args.onefile:
         ensure_torch_bin(output)
+        prune_torch_bin(output)
+        copy_package_sources(output, "torch")
+    if args.strip and not args.onefile:
+        strip_binaries(output)
     # --onedir puts the executable inside a directory of the same name, so the
     # launcher hint must point at <dist>/<name>/<name>, not at the directory.
     executable = output if args.onefile else output / (args.name + suffix)
