@@ -54,9 +54,18 @@ def helper_command(relative_path, args="") -> str:
     In a source checkout the script is executed with the current ``python``.
     In a frozen build the helpers live inside the executable, so the
     executable itself is asked to run the script (``--run-helper``).
+
+    ``AUTOMAG_HELPER_PYTHON`` overrides both: an external interpreter is used
+    with ``PYTHONPATH`` pointing at the bundle.  This is how a small build
+    (without torch) can still evaluate prophet_spin - the machine's own Python
+    and torch do the work while the pipeline itself stays frozen.
     """
     relative_path = str(relative_path).replace(os.sep, "/")
-    if frozen():
+    external = os.environ.get("AUTOMAG_HELPER_PYTHON")
+    if external:
+        command = (f'PYTHONPATH={code_root()}:$PYTHONPATH '
+                   f'"{external}" "{code_root() / relative_path}"')
+    elif frozen():
         command = f'"{sys.executable}" --run-helper {relative_path}'
     else:
         command = f'python "{code_root() / relative_path}"'

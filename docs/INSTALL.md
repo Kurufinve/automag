@@ -374,7 +374,26 @@ Three ready-made variants:
 | --- | --- | --- |
 | `--onedir --name run_automag` | ~5.7 GB | inside, models included |
 | `--onedir --name run_automag-extmodels --no-models` | ~5.4 GB | inside, models from `PROPHET_MODEL` / `PROPHET_HEAD` |
-| `--onedir --name run_automag-noprophet --no-prophet --no-models` | ~500 MB | absent (DFT calculators only) |
+| `--onedir --name run_automag-noprophet --no-prophet --no-models` | ~360 MB | absent (DFT calculators; prophet via `AUTOMAG_HELPER_PYTHON`) |
+
+### 5.2 A small binary that can still use Prophet
+
+Pruning the torch bundle does not work: `torch` aborts at import when
+`libtorch_cuda.so`/`nvidia/` are missing, and e3nn/TorchScript need the Python
+sources plus torch's helper binaries.  The slim route is therefore the
+no-prophet bundle plus an external interpreter:
+
+```bash
+export AUTOMAG_HELPER_PYTHON=/path/to/env/bin/python   # has torch + prophet_spin
+export PROPHET_MODEL=/path/to/models/prophet-v1-mag.pt
+export PROPHET_HEAD=/path/to/models/prophet-v1-mag-head.pt
+./dist/run_automag-noprophet/run_automag-noprophet --wait
+```
+
+`common.paths.helper_command()` then writes
+`PYTHONPATH=<bundle>/_internal <external python> <bundle>/_internal/common/...`
+into the job scripts, so the model and `write_output_ase.py` run in the
+machine's environment while the supervisor stays a 360 MB binary.
 
 Run the bundle on a machine without conda:
 

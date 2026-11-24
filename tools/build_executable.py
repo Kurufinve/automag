@@ -165,6 +165,42 @@ RUNTIME_HOOKS = ("tools/pyi_rth_scipy_stats.py",)
 #: other package depends on them - ``prophet_spin`` pulls in ~5 GB of
 #: torch + triton + CUDA libraries, which has no place in a DFT executable.
 #: ``--prophet`` bundles prophet_spin and keeps them (see the flag's help).
+#: Modules and files dropped by the slim build.  The model only needs CPU
+#: inference, so the whole GPU toolchain (CUDA runtime, libtorch_cuda, triton,
+#: the JIT compiler and llvmlite) goes away, along with development helpers.
+SLIM_EXCLUDED_MODULES = (
+    "nvidia", "triton", "llvmlite", "numba", "jedi", "IPython",
+)
+
+#: Paths (relative to the onedir bundle) removed after PyInstaller finishes.
+#: Nothing inside torch/ itself: e3nn and torch_geometric JIT-compile parts of
+#: the model at import time and need torch's helpers (bin, distributed,
+#: testing, _dynamo, _inductor) and, more importantly, the Python sources.
+SLIM_PRUNED_PATHS = (
+    "nvidia", "triton", "llvmlite", "numba",
+    "torch/include",            # C++ headers, ~64 MB
+)
+
+
+EXCLUDED_MODULES = (
+    "nvidia", "triton", "torch._inductor", "torch._dynamo",
+    "torch.distributed", "torch.testing", "torch.utils.tensorboard",
+    "llvmlite", "numba", "jedi", "IPython",
+)
+
+#: Paths (relative to the onedir bundle) removed after PyInstaller finishes.
+SLIM_PRUNED_PATHS = (
+    "nvidia", "triton", "llvmlite", "numba",
+    "torch/include",            # C++ headers, ~64 MB
+    "torch/bin",                # protoc and friends
+    "torch/lib/libtorch_cuda.so",
+    "torch/lib/libtorch_cuda_linalg.so",
+    "torch/lib/libtorch_nvshmem.so",
+    "torch/distributed", "torch/testing", "torch/test",
+    "torch/utils/tensorboard", "torch/_inductor", "torch/_dynamo",
+)
+
+
 EXCLUDED_MODULES = (
     "torch", "torchvision", "torchaudio", "triton", "nvidia",
     "tensorflow", "tensorboard", "keras", "jax", "jaxlib", "cupy",
@@ -270,6 +306,11 @@ def build_command(args):
     if not args.prophet:
         for module in EXCLUDED_MODULES + ("prophet_spin",):
             command += ["--exclude-module", module]
+    if args.slim and not args.prophet:
+        # Only prune when torch is not bundled: prophet's JIT path needs
+        # numba/llvmlite and the sources, so a slim torch build is fragile.
+        for module in SLIM_EXCLUDED_MODULES:
+            command += ["--exclude-module", module]
     for source, destination in write_patched_sources(ROOT / "build" / "patches"):
         command += ["--add-data", f"{source}{os.pathsep}{destination}"]
     for hook in RUNTIME_HOOKS:
@@ -292,6 +333,15 @@ def build_command(args):
         # torch ships Python sources plus a compiled library tree; PyInstaller
         # needs the data files as well, otherwise importing it fails in the
         # frozen build.
+        # e3nn / torch_geometric / prophet(_spin) JIT-compile model code at
+        # import time, so their .py sources must be present in the bundle.
+        for package in ("e3nn", "torch_geometric", "prophet_spin", "prophet"):
+            if _importable(package):
+                command += ["--collect-all", package]
+                # TorchScript reads the source through inspect.getsource(),
+                # which needs the .py files on disk, not only the .pyc.
+                command += ["--add-data",
+                            f"{_package_dir(package)}:{package}"]
         if _importable("torch"):
             # ``--collect-all`` (sources + data + binaries) is the recipe that
             # works for torch: partial collection breaks its lazy imports
@@ -314,6 +364,55 @@ def _importable(module):
     return True
 
 
+def _package_dir(package):
+    """Directory of an importable package (for --add-data)."""
+    module = __import__(package)
+    return Path(module.__file__).parent
+
+
+def ensure_torch_bin(output):
+    """PyInstaller does not collect ``torch/bin`` (e.g. ``torch_shm_manager``).
+
+    torch >= 2.7 aborts at import time when that executable is missing, so copy
+    it from the build environment's torch into the bundle.
+    """
+    import shutil
+
+    try:
+        import torch
+    except ImportError:
+        return
+    source = Path(torch.__file__).parent / "bin"
+    target = output / "_internal" / "torch" / "bin"
+    if not source.is_dir():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        if item.is_file():
+            shutil.copy2(item, target / item.name)
+
+
+def prune_bundle(output):
+    """Delete the GPU stack and development files from a onedir bundle."""
+    import shutil
+
+    freed = 0
+    for relative in SLIM_PRUNED_PATHS:
+        target = output / "_internal" / relative
+        if not target.exists():
+            continue
+        size = (sum(path.stat().st_size for path in target.rglob("*")
+                    if path.is_file()) if target.is_dir()
+                else target.stat().st_size)
+        freed += size
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        else:
+            target.unlink(missing_ok=True)
+    print(f"Slim build: removed {freed / 2**20:.0f} MiB "
+          "(GPU stack and development files)")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", default="run_automag")
@@ -332,6 +431,12 @@ def main(argv=None):
                               "(default).  With --no-models the bundle expects "
                               "PROPHET_MODEL / PROPHET_HEAD (or an explicit "
                               "'model_path' in the stage params) at run time"))
+    parser.add_argument("--slim", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help=("drop the GPU stack and development files "
+                              "(default): nvidia/, triton/, libtorch_cuda, "
+                              "llvmlite, torch/include, ...  "
+                              "--no-slim keeps them, needed for device=cuda"))
     parser.add_argument("--prophet", action=argparse.BooleanOptionalAction,
                         default=True,
                         help=("bundle the prophet_spin calculator with its "
@@ -356,6 +461,10 @@ def main(argv=None):
 
     suffix = ".exe" if os.name == "nt" else ""
     output = ROOT / "dist" / (args.name + suffix)
+    if args.slim and not args.prophet and not args.onefile:
+        prune_bundle(output)
+    if args.prophet and not args.onefile:
+        ensure_torch_bin(output)
     # --onedir puts the executable inside a directory of the same name, so the
     # launcher hint must point at <dist>/<name>/<name>, not at the directory.
     executable = output if args.onefile else output / (args.name + suffix)

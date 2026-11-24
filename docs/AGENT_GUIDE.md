@@ -498,7 +498,14 @@ Two variants exist and are built with the same script:
 | --- | --- | --- | --- |
 | embedded | `--onedir --name run_automag` | 5.7 GB | `_internal/models/*.pt`, nothing to set |
 | external | `--onedir --name run_automag-extmodels --no-models` | 5.4 GB | models from `PROPHET_MODEL` / `PROPHET_HEAD` |
-| small | `--onedir --name run_automag-noprophet --no-prophet --no-models` | 500 MB | none (VASP/QE/FHI-aims/ASE) |
+| small | `--onedir --name run_automag-noprophet --no-prophet --no-models` | 360 MB | none inside; external via `AUTOMAG_HELPER_PYTHON` |
+
+Slimming (`--slim`, default) only applies to non-prophet builds: pruning a
+torch bundle breaks `torch` at import (libtorch_cuda/nvidia) and the JIT of
+e3nn/TorchScript (needs .py sources and torch/bin, torch.distributed,
+torch.testing, _dynamo).  With `AUTOMAG_HELPER_PYTHON` the helpers run in an
+external interpreter instead (`PYTHONPATH=<bundle>/_internal`), which is the
+supported way to keep the binary small and still use prophet.
 
 `common.paths.model_file()` tries the environment first (`PROPHET_MODEL` for
 the energy model, `PROPHET_HEAD` for the head), then the bundled copy - so the
