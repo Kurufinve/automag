@@ -48,7 +48,10 @@ Session state, decisions and known pitfalls: `docs/SESSION_HANDOFF.md` — read 
   `python tools/launchers_test.sh` (all without DFT), and
   `cd examples/vasp && python ../../run_automag.py --dry-run --wait`
   (plus `examples/prophet`, `examples/prophet_then_vasp`).
-- Build: `./build.sh [--onedir|--all|--external]` (ninja + PyInstaller) →
+- Build: `./build.sh [--onedir|--all|--external]` (ninja + PyInstaller);
+  small CPU bundles: `tools/build_cpu_bundle.sh` (Linux/macOS) or
+  `tools\build_cpu_bundle.bat` (Windows, from the conda env) → ~834 MB /
+  ~930 MB with the checkpoints outside →
   `dist/run_automag`.  `prophet_spin` + torch + `models/` are bundled by
   default (~5.7 GB); `--no-prophet` gives the ~490 MB bundle.  The frozen build
   must keep working without conda (`env -i PATH=/usr/bin:/bin <bin> --dry-run`).

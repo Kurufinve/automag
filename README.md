@@ -750,6 +750,14 @@ environment (venv, CPU torch, prophet packages) and runs both builds.
 Do not strip the NumPy/SciPy stack (OpenBLAS, libgfortran): their wheels rely on
 ELF segment alignment and stop loading after `strip`.
 
+On Windows the same recipe is `tools\build_cpu_bundle.bat`, run from the Anaconda
+Prompt of the automag environment.  It creates `%LOCALAPPDATA%\automag\cpuenv`,
+installs the `win_amd64` CPU wheel (`AUTOMAG_TORCH_CPU`, fallback to
+`download-r2.pytorch.org`), copies `prophet`/`prophet_spin` from the active conda
+environment (`AUTOMAG_SOURCE_ENV` overrides it) and runs both builds.  Windows
+has no `strip`, so the `.bat` produces the unstripped pair: ~1.2 GB with the
+checkpoints and ~930 MB without them.
+
 ```bash
 # on any machine with the same OS/arch, no python and no conda needed
 env -i PATH=/usr/bin:/bin ./dist/run_automag/run_automag --dry-run --wait

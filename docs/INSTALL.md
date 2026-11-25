@@ -391,6 +391,22 @@ tools/build_cpu_bundle.sh                 # also builds the 1.1 GB variant
 tools/build_cpu_bundle.sh --setup-only    # just prepare ~/.cache/automag/cpuenv
 ```
 
+Windows (Anaconda Prompt, the automag environment activated):
+
+```bat
+tools\build_cpu_bundle.bat --no-models
+tools\build_cpu_bundle.bat
+tools\build_cpu_bundle.bat --setup-only
+```
+
+The batch script is the same recipe: venv in `%LOCALAPPDATA%\automag\cpuenv`
+(`AUTOMAG_CPU_ENV` overrides it), `torch==<AUTOMAG_TORCH_CPU>+cpu` from the
+`win_amd64` wheel (the index first, then `download-r2.pytorch.org`),
+`prophet`/`prophet_spin` copied from `%CONDA_PREFIX%\Lib\site-packages`
+(`AUTOMAG_SOURCE_ENV` overrides it) and both bundles built with
+`tools\build_executable.py`.  `strip` does not exist on Windows, so expect the
+unstripped sizes (~1.2 GB with the checkpoints, ~930 MB without).
+
 The script creates a venv (`AUTOMAG_CPU_ENV`, default `~/.cache/automag/cpuenv`),
 installs `torch==$AUTOMAG_TORCH_CPU+cpu` (default 2.14.1; the CPU index may not
 list it, then the wheel is fetched from `download-r2.pytorch.org`), copies

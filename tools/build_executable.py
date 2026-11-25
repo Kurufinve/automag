@@ -343,7 +343,7 @@ def build_command(args):
                 # TorchScript reads the source through inspect.getsource(),
                 # which needs the .py files on disk, not only the .pyc.
                 command += ["--add-data",
-                            f"{_package_dir(package)}:{package}"]
+                            f"{_package_dir(package)}{os.pathsep}{package}"]
         if _importable("torch"):
             # ``--collect-all`` (sources + data + binaries) is the recipe that
             # works for torch: partial collection breaks its lazy imports
@@ -428,6 +428,9 @@ def strip_binaries(output):
     import shutil
     import subprocess
 
+    if os.name == "nt":
+        print("strip is not available on Windows - the bundle keeps its symbols")
+        return
     strip = shutil.which("strip")
     if strip is None:
         print("strip not found, skipping symbol removal")
@@ -446,6 +449,23 @@ def strip_binaries(output):
             total += before - path.stat().st_size
     if total:
         print(f"Stripped {total // 1024 // 1024} MiB from shared libraries")
+
+
+def bundle_paths(args, platform_name=None):
+    """Return (bundle directory, executable) as PyInstaller creates them.
+
+    ``--onedir`` always uses ``dist/<name>/`` as the bundle directory, also on
+    Windows, where the executable inside it is ``dist/<name>/<name>.exe``;
+    ``--onefile`` puts a single ``dist/<name>[.exe]`` file there instead.
+    ``platform_name`` exists for the tests (``"nt"`` simulates Windows).
+    """
+    name = platform_name or os.name
+    suffix = ".exe" if name == "nt" else ""
+    directory = ROOT / "dist" / args.name
+    if args.onefile:
+        single = ROOT / "dist" / (args.name + suffix)
+        return single, single
+    return directory, directory / (args.name + suffix)
 
 
 def ensure_torch_bin(output):
@@ -541,8 +561,7 @@ def main(argv=None):
     if result.returncode != 0:
         return result.returncode
 
-    suffix = ".exe" if os.name == "nt" else ""
-    output = ROOT / "dist" / (args.name + suffix)
+    output, executable = bundle_paths(args)
     if args.slim and not args.onefile:
         # The pruned paths are safe for a CPU-only torch as well (there is no
         # nvidia/ or triton/ in such a wheel); torch/bin is restored below.
