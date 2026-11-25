@@ -91,7 +91,9 @@ if errorlevel 1 (
 )
 
 echo === installing the project requirements and the build tools
-"%VENV_PY%" -m pip install -q -r requirements.txt pyinstaller ninja e3nn matscipy torch_geometric
+set "REQ=requirements.txt"
+if exist "requirements-windows.txt" set "REQ=requirements-windows.txt"
+"%VENV_PY%" -m pip install -q -r "!REQ!" pyinstaller ninja e3nn matscipy torch_geometric
 if errorlevel 1 (echo ERROR: pip install failed & popd & exit /b 1)
 
 rem --- prophet-mlip is not on PyPI: reuse the copy of the reference environment ---

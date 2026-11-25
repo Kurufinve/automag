@@ -1,0 +1,87 @@
+# Python dependencies of automag on Windows (64-bit, CPython 3.12).
+#
+#   python -m pip install -r requirements-windows.txt
+#
+# This is requirements.txt adapted for Windows.  Every package below was
+# checked with
+#
+#   pip download --only-binary=:all: --platform win_amd64 \
+#                --python-version 3.12 --implementation cp --abi cp312 \
+#                -r requirements-windows.txt
+#
+# i.e. all of them have a win_amd64/cp312 wheel and nothing has to be compiled
+# on the target machine.  Differences from the Linux list:
+#
+#   * gunicorn is POSIX-only (it installs, but it cannot serve on Windows and
+#     automag never imports it - only the optional FireWorks web GUI does);
+#   * dataclasses is a Python 3.7 backport, useless on 3.12;
+#   * the build tools (pyinstaller, ninja) are appended at the end, because
+#     this file is also what tools\build_cpu_bundle.bat installs for compiling
+#     the bundle.
+#
+# The Prophet-V1-Mag calculator (`prophet_spin`) is optional and heavy (torch):
+#
+#   python -m pip install -r requirements-prophet-windows.txt
+
+ase
+bcrypt
+certifi
+cffi
+chardet
+click
+cryptography
+cycler
+decorator
+dnspython
+fabric
+FireWorks
+Flask
+flask-paginate
+future
+idna
+invoke
+itsdangerous
+Jinja2
+kiwisolver
+MarkupSafe
+matplotlib
+monty
+mpmath
+networkx
+numpy
+palettable
+pandas
+paramiko
+Pillow
+pip
+plotly
+pycparser
+pymatgen
+pymongo
+PyNaCl
+pyparsing
+python-dateutil
+pytz
+requests
+retrying
+ruamel.yaml
+ruamel.yaml.clib
+scipy
+setuptools
+six
+spglib
+sympy
+tabulate
+tqdm
+uncertainties
+urllib3
+Werkzeug
+wheel
+
+# --- POSIX-only, not installed on Windows ----------------------------------
+# gunicorn        # installs but cannot serve on Windows; automag never uses it
+# dataclasses     # Python 3.7 backport, the standard library covers 3.12
+
+# --- compiling the bundle (tools\build_cpu_bundle.bat installs these too) ---
+pyinstaller
+ninja

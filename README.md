@@ -77,6 +77,16 @@ python -m pip install -r requirements.txt
 python -m pip install -r requirements-prophet.txt
 ```
 
+Windows (64-bit Python 3.12): the same two files have Windows counterparts that
+pin packages with `win_amd64` wheels and skip the POSIX-only `gunicorn`; the
+prophet file installs the CPU torch wheel of the version the checkpoints were
+exported with:
+
+```bat
+python -m pip install -r requirements-windows.txt
+python -m pip install -r requirements-prophet-windows.txt      :: optional
+```
+
 ### 2. venv without conda
 
 ```bash

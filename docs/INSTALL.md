@@ -45,6 +45,15 @@ Optional:
 | `pyinstaller`, `ninja` | building `dist/run_automag` |
 | `prophet_spin` | optional (`requirements-prophet.txt`): the Prophet-V1-Mag calculator; the checkpoints ship in `models/` |
 
+On Windows use `requirements-windows.txt` / `requirements-prophet-windows.txt`:
+every entry has a `win_amd64`/cp312 wheel (checked with
+`pip download --only-binary=:all: --platform win_amd64 --python-version 3.12`),
+`gunicorn` (POSIX-only) and the `dataclasses` backport are left out, the build
+tools `pyinstaller`/`ninja` are included, and the prophet file installs the CPU
+torch wheel by URL because the `+cpu` local version is only published in the
+PyTorch index.  `prophet-mlip` has no public distribution, so that line stays
+commented with three ways to provide it.
+
 `requirements.txt` is the full historical list (it also contains `Flask`,
 `paramiko`, `fabric`, `plotly`, ...).  Installing it is the simplest and safest
 option; the pipeline does not use the extra entries.  `ssh` access to remote

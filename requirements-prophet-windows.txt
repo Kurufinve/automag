@@ -1,0 +1,48 @@
+# Optional: the Prophet-V1-Mag calculator (`prophet_spin`) on Windows.
+#
+#   python -m pip install -r requirements-prophet-windows.txt
+#
+# differences from requirements-prophet.txt:
+#
+#   * torch comes from the CPU wheel index of the same version that the
+#     checkpoints were exported with (2.14.1).  A CUDA wheel works too but adds
+#     ~3 GB to the bundle and cannot be pruned afterwards - see
+#     docs/INSTALL.md 5.1;
+#   * e3nn / torch_geometric / matscipy are listed explicitly: prophet_spin
+#     needs them and the compiled build has to bundle them;
+#   * prophet-mlip has no public distribution (neither PyPI nor the PyTorch
+#     index), so it stays commented out - see the note at the bottom.
+#
+# The model checkpoints are NOT installed from here: they live in
+# <automag>/models (prophet-v1-mag.pt, prophet-v1-mag-head.pt).
+
+# CPU wheel by URL: the "+cpu" local versions are published only in the PyTorch
+# index, and some pip setups cannot resolve a local version from it.  Keep the
+# version equal to the one the checkpoints were exported with.
+# For a CUDA build replace the line with:  torch==2.14.1
+# If pip times out on that 124 MB file, fetch it with curl/browser and install
+# the local file instead:
+#   curl -L -O https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-win_amd64.whl
+#   python -m pip install torch-2.14.1+cpu-cp312-cp312-win_amd64.whl
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-win_amd64.whl
+e3nn
+torch_geometric
+matscipy
+
+# --- prophet-mlip ----------------------------------------------------------
+# The package ships as a wheel inside the Prophet repository (or as a plain
+# package directory) and is not on PyPI.  Pick one of these:
+#
+#   1. point pip at the wheel that comes with the Prophet distribution:
+#        python -m pip install prophet_mlip-1.0.1-py3-none-any.whl
+#   2. reuse the copy of an existing environment: copy
+#        <env>\Lib\site-packages\prophet, prophet_spin and
+#        prophet_mlip-1.0.1.dist-info
+#      into the target environment's site-packages.  That is exactly what
+#      tools\build_cpu_bundle.bat does by default (AUTOMAG_SOURCE_ENV overrides
+#      which environment it copies from).
+#   3. keep the dependency out of the bundle and let an external interpreter
+#      run the model: set AUTOMAG_HELPER_PYTHON to a python that has
+#      prophet_spin, then the 359 MB --no-prophet bundle is enough.
+#
+# prophet-mlip==1.0.1
