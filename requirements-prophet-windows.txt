@@ -20,11 +20,21 @@
 # index, and some pip setups cannot resolve a local version from it.  Keep the
 # version equal to the one the checkpoints were exported with.
 # For a CUDA build replace the line with:  torch==2.14.1
-# If pip times out on that 124 MB file, fetch it with curl/browser and install
-# the local file instead:
-#   curl -L -O https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-win_amd64.whl
-#   python -m pip install torch-2.14.1+cpu-cp312-cp312-win_amd64.whl
 torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-win_amd64.whl
+
+# If pip times out on that 124 MB file (it did on one of our machines), fetch it
+# once and install from a local folder.  Replace the "torch @ ..." line above
+# with the plain version spec and point pip at the folder:
+#
+#   torch==2.14.1+cpu
+#
+#   curl -L -O https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-win_amd64.whl
+#   mkdir wheels && move torch-2.14.1+cpu-cp312-cp312-win_amd64.whl wheels
+#   python -m pip install -r requirements-prophet-windows.txt --find-links wheels
+#
+# tools\build_cpu_bundle.bat does exactly this automatically: it caches the
+# wheel in %AUTOMAG_CPU_ENV%\wheels and installs it with --no-deps when the
+# index and the direct download both fail.
 e3nn
 torch_geometric
 matscipy
